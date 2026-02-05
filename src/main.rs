@@ -80,7 +80,7 @@ struct SignedIntentRequest {
     chain_id: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Debug,Serialize)]
 struct IntentResponse {
     intent_id: String,
     status: String,
@@ -588,7 +588,7 @@ async fn create_signed_intent(
             message: "No wallet connected".to_string(),
             ai_message: "🔐 Please connect your wallet first to execute transactions!".to_string(),
             transaction_hash: None,
-            transaction_data: None,  // Add this line!
+            transaction_data: None,
             data: None,
         });
     }
@@ -607,34 +607,80 @@ async fn create_signed_intent(
             
             match agent.process_user_intent(user_id, &payload.user_input).await {
                 Ok(result) => {
+                    // DEBUG LOGGING
                     println!("🔄 Intent result received:");
                     println!("   Success: {}", result.success);
                     println!("   Has transaction_data: {}", result.transaction_data.is_some());
-                    println!(" transation data {}", result.transaction_data);
-                    println!("   Has data: {}", result.data.is_some());
-        
-                 if let Some(tx_data) = &result.transaction_data {
-                    println!("   Transaction data details:");
-                    println!("     To: {}", tx_data.to);
-                    println!("     Chain ID: {}", tx_data.chain_id);
-                    println!("     Description: {}", tx_data.description);
-                    }
-                    let mut data = result.data.unwrap_or(serde_json::json!({}));
+                    
+                    // Start with the result data or empty object
+                    let mut data = match result.data {
+                        Some(d) => {
+                            println!("   Has original data: yes");
+                            d
+                        }
+                        None => {
+                            println!("   Has original data: no, creating empty object");
+                            serde_json::json!({})
+                        }
+                    };
+                    
+                    // Convert to object if it's not already
                     if let serde_json::Value::Object(ref mut map) = data {
+                        // Add wallet info
                         map.insert("wallet_address".to_string(), serde_json::Value::String(payload.address.clone()));
                         map.insert("chain_id".to_string(), serde_json::Value::Number(payload.chain_id.into()));
                         map.insert("signed".to_string(), serde_json::Value::Bool(true));
+                        
+                        if let Some(ref tx_data) = result.transaction_data {
+                            println!("📤 Adding transaction_data to response data: {:?}", tx_data);
+                            
+                            match serde_json::to_value(&tx_data) {
+                                Ok(tx_value) => {
+                                    println!("✅ Successfully serialized transaction_data");
+                                    map.insert("transaction_data".to_string(), tx_value);
+                                    println!("✅ Successfully added transaction_data to data map");
+                                    
+                                    // Debug: print the data map keys
+                                    println!("📋 Data map keys after insertion: {:?}", map.keys().collect::<Vec<_>>());
+                                }
+                                Err(e) => {
+                                    println!("❌ Failed to serialize transaction_data: {}", e);
+                                }
+                            }
+                        } else {
+                            println!("⚠️ No transaction_data in result");
+                        }
+                    } else {
+                        println!("⚠️ data is not an object, can't add fields");
                     }
                     
-                    Json(IntentResponse {
+                    // Create the response
+                    let response = IntentResponse {
                         intent_id: result.intent_id,
                         status: if result.success { "completed".to_string() } else { "failed".to_string() },
                         message: result.message,
                         ai_message: result.ai_message,
                         transaction_hash: result.transaction_hash,
-                        transaction_data: result.transaction_data,  // Add this line!
+                        transaction_data: result.transaction_data,
                         data: Some(data),
-                    })
+                    };
+                    
+                    // Debug: print the final response
+                    println!("📤 Final response being sent:");
+                    println!("   Has data field: {}", response.data.is_some());
+                    if let Some(ref resp_data) = response.data {
+                        println!("   Data type: {}", resp_data);
+                        if let serde_json::Value::Object(map) = resp_data {
+                            println!("   Data keys: {:?}", map.keys().collect::<Vec<_>>());
+                            if let Some(tx_data_val) = map.get("transaction_data") {
+                                println!("   transaction_data in response: {}", tx_data_val);
+                            } else {
+                                println!("   ❌ transaction_data NOT FOUND in response data!");
+                            }
+                        }
+                    }
+                    
+                    Json(response)
                 }
                 Err(e) => {
                     let error_message = format!("Intent processing failed: {}", e);
@@ -646,7 +692,7 @@ async fn create_signed_intent(
                         message: error_message,
                         ai_message: fallback_ai_response,
                         transaction_hash: None,
-                        transaction_data: None,  // Add this line!
+                        transaction_data: None,
                         data: None,
                     })
                 }
@@ -659,7 +705,7 @@ async fn create_signed_intent(
                 message: "Intent agent not initialized".to_string(),
                 ai_message: "🤖 Please initialize the AI agent first.".to_string(),
                 transaction_hash: None,
-                transaction_data: None,  // Add this line!
+                transaction_data:None,
                 data: None,
             })
         }
