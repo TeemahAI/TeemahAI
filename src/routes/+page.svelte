@@ -277,9 +277,7 @@
         isConnectingWallet = false;
      }
     }
-    
-    // Update balance using ethers.js
-    async function updateBalanceWithEthers(provider: BrowserProvider, address: string) {
+        async function updateBalanceWithEthers(provider: BrowserProvider, address: string) {
         try {
             const balance = await provider.getBalance(address);
             // Convert from wei to ETH
@@ -288,15 +286,11 @@
             console.error('Failed to get balance:', error);
         }
     }
-    
-    // Connect WalletConnect
-    async function connectWalletConnect() {
+        async function connectWalletConnect() {
         addAssistantMessage('🔗 WalletConnect integration coming soon!');
         // Implement WalletConnect connection here
     }
-    
-    // Disconnect wallet
-    async function disconnectWallet() {
+        async function disconnectWallet() {
         try {
             const response = await fetch('http://localhost:3001/api/wallet/disconnect', {
                 method: 'POST',
@@ -317,9 +311,7 @@
             console.error('Failed to disconnect wallet:', error);
         }
     }
-    
-    // Update wallet balance from backend
-    async function updateWalletBalance() {
+        async function updateWalletBalance() {
         try {
             const response = await fetch('http://localhost:3001/api/wallet/balance');
             const data = await response.json();
@@ -337,108 +329,329 @@
      console.log('3. Wallet connected:', walletConnected);
      console.log('4. window.ethereum exists:', !!window.ethereum);
     
-     // Add a simple alert to confirm it's being called
-     alert('signTransaction function was called! Check console for details.');
-    
      if (!window.ethereum || !walletConnected) {
         console.log('❌ No ethereum provider or wallet not connected');
         addAssistantMessage('❌ Please connect your wallet first.');
         return null;
      }
     
-     // For now, let's just test with a simple transaction
-     console.log('🔧 Testing with simple transaction first...');
+     isSigningTransaction = true;
     
      try {
         const provider = new BrowserProvider(window.ethereum);
         const signer = await provider.getSigner();
         
-        // SIMPLE TEST TRANSACTION
-        const tx = {
-            to: walletAddress, // Send to self
-            value: ethers.parseEther("0"),
-            chainId: chainId,
-        };
+        console.log('🔍 Transaction data received:', transactionData);
+        console.log('   To:', transactionData.to);
+        console.log('   Data:', transactionData.data);
+        console.log('   Value:', transactionData.value);
+        console.log('   Chain ID:', transactionData.chain_id);
+        console.log('   Backend data available:', !!backendData);
         
-        console.log('📤 Sending simple test transaction...');
+        // Check if we have backend data with parameters for contract call
+        const isCreateProject = backendData?.action === 'create_project';
         
-        const txResponse = await signer.sendTransaction(tx);
-        console.log('✅ Simple test transaction sent! Hash:', txResponse.hash);
+        console.log('🔨 Is create project transaction?', isCreateProject);
+        console.log('🔨 Has parameters?', !!backendData?.parameters);
         
-        const receipt = await txResponse.wait();
-        console.log('✅ Simple test transaction confirmed! Hash:', receipt.hash);
-        
-        addSystemMessage(`✅ Simple test successful! Transaction hash: ${receipt.hash}`);
-        
-        // Now try the actual contract call
-        console.log('🔄 Now trying actual contract call...');
-        
-        if (backendData?.action === 'create_project' && backendData?.parameters) {
-            console.log('🔨 Creating actual contract call...');
+        let tx;
+        if (isCreateProject && backendData?.parameters) {
+            console.log('🔨 Creating contract call for project creation');
             
+            // Get parameters from backend data
             const params = backendData.parameters;
+            
+            console.log('📋 Parameters received:', JSON.stringify(params, null, 2));
+            
+            // Create the contract interface with EXACT function signature
             const contractInterface = new ethers.Interface([
                 'function createProjectWithTokenViaTelegram(address creator, string project_name, string token_name, string token_symbol, uint8 token_decimals, uint256 initial_supply, uint256 soft_cap, uint256 hard_cap, uint256 start_time, uint256 end_time, uint256 token_price, uint256 tokens_for_sale, uint16 liquidity_percent, uint16 marketing_percent, uint256 marketing_telegram_id) external returns (address)'
             ]);
             
-            const encodedData = contractInterface.encodeFunctionData('createProjectWithTokenViaTelegram', [
-                walletAddress,
-                params.project_name,
-                params.token_name,
-                params.token_symbol,
-                params.token_decimals,
-                ethers.toBigInt(params.initial_supply),
-                ethers.toBigInt(params.soft_cap),
-                ethers.toBigInt(params.hard_cap),
-                ethers.toBigInt(params.start_time),
-                ethers.toBigInt(params.end_time),
-                ethers.toBigInt(params.token_price),
-                ethers.toBigInt(params.tokens_for_sale),
-                params.liquidity_percent,
-                params.marketing_percent,
-                ethers.toBigInt(params.marketing_telegram_id)
-            ]);
+            // Log parameter types for debugging
+            console.log('🔧 Parameter types check:');
+            console.log('   creator (address):', walletAddress, 'type:', typeof walletAddress);
+            console.log('   project_name (string):', params.project_name, 'type:', typeof params.project_name);
+            console.log('   token_name (string):', params.token_name, 'type:', typeof params.token_name);
+            console.log('   token_symbol (string):', params.token_symbol, 'type:', typeof params.token_symbol);
+            console.log('   token_decimals (uint8):', params.token_decimals, 'type:', typeof params.token_decimals);
+            console.log('   initial_supply (uint256):', params.initial_supply, 'type:', typeof params.initial_supply);
+            console.log('   soft_cap (uint256):', params.soft_cap, 'type:', typeof params.soft_cap);
+            console.log('   hard_cap (uint256):', params.hard_cap, 'type:', typeof params.hard_cap);
+            console.log('   start_time (uint256):', params.start_time, 'type:', typeof params.start_time);
+            console.log('   end_time (uint256):', params.end_time, 'type:', typeof params.end_time);
+            console.log('   token_price (uint256):', params.token_price, 'type:', typeof params.token_price);
+            console.log('   tokens_for_sale (uint256):', params.tokens_for_sale, 'type:', typeof params.tokens_for_sale);
+            console.log('   liquidity_percent (uint16):', params.liquidity_percent, 'type:', typeof params.liquidity_percent);
+            console.log('   marketing_percent (uint16):', params.marketing_percent, 'type:', typeof params.marketing_percent);
+            console.log('   marketing_telegram_id (uint256):', params.marketing_telegram_id, 'type:', typeof params.marketing_telegram_id);
             
-            console.log('📦 Encoded contract data length:', encodedData.length);
+            try {
+                // Convert parameters to correct types
+                const creatorAddress = walletAddress; // Use actual wallet address, not zero address
+                
+                // Parse string numbers to proper types
+                const tokenDecimals = parseInt(params.token_decimals);
+                const initialSupply = ethers.toBigInt(params.initial_supply);
+                const softCap = ethers.toBigInt(params.soft_cap);
+                const hardCap = ethers.toBigInt(params.hard_cap);
+                const startTime = ethers.toBigInt(params.start_time);
+                const endTime = ethers.toBigInt(params.end_time);
+                const tokenPrice = ethers.toBigInt(params.token_price);
+                const tokensForSale = ethers.toBigInt(params.tokens_for_sale);
+                const liquidityPercent = parseInt(params.liquidity_percent);
+                const marketingPercent = parseInt(params.marketing_percent);
+                const marketingTelegramId = ethers.toBigInt(params.marketing_telegram_id);
+                
+                console.log('🔢 Converted parameters:');
+                console.log('   creatorAddress:', creatorAddress);
+                console.log('   tokenDecimals (number):', tokenDecimals);
+                console.log('   initialSupply (bigint):', initialSupply.toString());
+                console.log('   softCap (bigint):', softCap.toString());
+                console.log('   hardCap (bigint):', hardCap.toString());
+                console.log('   startTime (bigint):', startTime.toString());
+                console.log('   endTime (bigint):', endTime.toString());
+                console.log('   tokenPrice (bigint):', tokenPrice.toString());
+                console.log('   tokensForSale (bigint):', tokensForSale.toString());
+                console.log('   liquidityPercent (number):', liquidityPercent);
+                console.log('   marketingPercent (number):', marketingPercent);
+                console.log('   marketingTelegramId (bigint):', marketingTelegramId.toString());
+                
+                // Encode the function call
+                const encodedData = contractInterface.encodeFunctionData('createProjectWithTokenViaTelegram', [
+                    creatorAddress,
+                    params.project_name,
+                    params.token_name,
+                    params.token_symbol,
+                    tokenDecimals,
+                    initialSupply,
+                    softCap,
+                    hardCap,
+                    startTime,
+                    endTime,
+                    tokenPrice,
+                    tokensForSale,
+                    liquidityPercent,
+                    marketingPercent,
+                    marketingTelegramId
+                ]);
+                
+                console.log('📦 Encoded contract data length:', encodedData.length);
+                console.log('📦 Encoded data (first 100 chars):', encodedData.substring(0, 100));
+                console.log('📦 Function selector:', encodedData.substring(0, 10));
+                console.log('📦 Full encoded data available for inspection');
+                
+                tx = {
+                    to: transactionData.to,
+                    data: encodedData,
+                    value: ethers.parseEther(transactionData.value || "0"),
+                    chainId: transactionData.chain_id,
+                };
+                
+                console.log('📤 Transaction to send:', {
+                    to: tx.to,
+                    dataLength: tx.data.length,
+                    value: tx.value.toString(),
+                    chainId: tx.chainId
+                });
+                
+            } catch (encodingError) {
+                console.error('❌ Encoding error:', encodingError);
+                console.error('❌ Encoding error details:', encodingError.message);
+                console.error('❌ Encoding error stack:', encodingError.stack);
+                throw new Error(`Failed to encode contract call: ${encodingError.message}`);
+            }
             
-            const contractTx = {
-                to: transactionData.to,
-                data: encodedData,
-                value: ethers.parseEther(transactionData.value || "0"),
-                chainId: transactionData.chain_id || chainId,
-            };
+        } else {
+            console.log('⚠️ Not a create project transaction or missing parameters');
             
-            console.log('📤 Sending contract transaction...');
+            // For regular transactions (invest, etc.)
+            const isTestTransaction = transactionData.to === walletAddress;
             
-            const contractTxResponse = await signer.sendTransaction(contractTx);
-            console.log('✅ Contract transaction sent! Hash:', contractTxResponse.hash);
-            
-            const contractReceipt = await contractTxResponse.wait();
-            console.log('✅ Contract transaction confirmed! Hash:', contractReceipt.hash);
-            
-            return contractReceipt.hash;
+            if (isTestTransaction) {
+                tx = {
+                    to: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+                    value: ethers.parseEther("0"),
+                    chainId: transactionData.chain_id,
+                };
+            } else {
+                tx = {
+                    to: transactionData.to,
+                    data: transactionData.data || "0x",
+                    value: ethers.parseEther(transactionData.value || "0"),
+                    chainId: transactionData.chain_id,
+                };
+            }
         }
         
-        return receipt.hash;
+        console.log('🚀 Sending transaction to MetaMask...');
+        addSystemMessage('⏳ Opening MetaMask... Please sign the transaction.');
+        
+        // Add a delay to ensure user sees the message
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        console.log('📤 Transaction payload:', {
+            to: tx.to,
+            value: tx.value.toString(),
+            chainId: tx.chainId,
+            dataLength: tx.data?.length || 0
+        });
+        
+        // Estimate gas first
+        try {
+            console.log('⛽ Estimating gas...');
+            const gasEstimate = await provider.estimateGas(tx);
+            console.log('✅ Gas estimate:', gasEstimate.toString());
+            
+            // Add 20% buffer
+            const gasWithBuffer = (gasEstimate * 120n) / 100n;
+            tx.gasLimit = gasWithBuffer;
+            console.log('✅ Gas with buffer:', gasWithBuffer.toString());
+            
+        } catch (gasError) {
+            console.warn('⚠️ Gas estimation failed:', gasError.message);
+            console.log('⚠️ Using default gas limit');
+            // Use a safe default for contract calls
+            tx.gasLimit = 500000n; // 500k gas
+        }
+        
+        // Get gas price
+        try {
+            const feeData = await provider.getFeeData();
+            console.log('💰 Fee data:', {
+                gasPrice: feeData.gasPrice?.toString(),
+                maxFeePerGas: feeData.maxFeePerGas?.toString(),
+                maxPriorityFeePerGas: feeData.maxPriorityFeePerGas?.toString()
+            });
+            
+            if (feeData.gasPrice) {
+                tx.gasPrice = feeData.gasPrice;
+            } else if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+                tx.maxFeePerGas = feeData.maxFeePerGas;
+                tx.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
+            }
+            
+        } catch (feeError) {
+            console.warn('⚠️ Fee data fetch failed:', feeError.message);
+        }
+        
+        // Send the transaction
+        const txResponse = await signer.sendTransaction(tx);
+        
+        console.log('✅ Transaction sent! Hash:', txResponse.hash);
+        console.log('✅ Transaction details:', {
+            hash: txResponse.hash,
+            to: txResponse.to,
+            from: txResponse.from,
+            chainId: txResponse.chainId
+        });
+        
+        addSystemMessage(`✅ Transaction sent! Hash: ${txResponse.hash}\n⏳ Waiting for confirmation...`);
+        
+        // Wait for confirmation
+        console.log('⏳ Waiting for transaction confirmation...');
+        const receipt = await txResponse.wait();
+        
+        console.log('✅ Transaction confirmed!');
+        console.log('✅ Receipt details:', {
+            hash: receipt.hash,
+            status: receipt.status,
+            blockNumber: receipt.blockNumber,
+            gasUsed: receipt.gasUsed?.toString(),
+            cumulativeGasUsed: receipt.cumulativeGasUsed?.toString()
+        });
+        
+        if (receipt && receipt.hash) {
+            if (receipt.status === 1) {
+                addSystemMessage(`🎉 Transaction confirmed! Hash: ${receipt.hash}`);
+                console.log('🎉 Transaction successful!');
+            } else {
+                addSystemMessage(`⚠️ Transaction failed! Hash: ${receipt.hash} (Status: ${receipt.status})`);
+                console.log('❌ Transaction failed with status:', receipt.status);
+                throw new Error(`Transaction failed with status ${receipt.status}`);
+            }
+            
+            isSigningTransaction = false;
+            return receipt.hash;
+        }
+        
+        isSigningTransaction = false;
+        return null;
         
      } catch (error: any) {
         console.error('❌ Transaction error:', error);
-        console.error('Error details:', {
+        console.error('❌ Error details:', {
             code: error.code,
             message: error.message,
+            data: error.data,
             stack: error.stack
         });
         
+        isSigningTransaction = false;
+        
+        // Provide user-friendly error messages
         if (error.code === 4001) {
             addAssistantMessage('❌ Transaction rejected by user in MetaMask.');
         } else if (error.code === 'INSUFFICIENT_FUNDS') {
             addAssistantMessage('❌ Insufficient funds for gas fee.');
+        } else if (error.code === 'UNSUPPORTED_OPERATION') {
+            addAssistantMessage('❌ Unsupported operation. Please check your wallet.');
+        } else if (error.message.includes('user rejected')) {
+            addAssistantMessage('❌ You rejected the transaction in MetaMask.');
+        } else if (error.message.includes('execution reverted')) {
+            addAssistantMessage('❌ Contract execution reverted. This could be due to:');
+            addAssistantMessage('   - Invalid parameters');
+            addAssistantMessage('   - Contract requirements not met');
+            addAssistantMessage('   - Insufficient permissions');
+            console.error('❌ Revert reason (if available):', error.data);
+        } else if (error.message.includes('network')) {
+            addAssistantMessage('❌ Network error. Please check your connection.');
+        } else if (error.message.includes('chain')) {
+            addAssistantMessage('❌ Wrong network. Please switch to BSC Testnet (Chain ID: 97).');
         } else {
             addAssistantMessage(`❌ Transaction failed: ${error.message}`);
         }
         
         return null;
+        }
+    }
+    async function testContractCall() {
+     if (!window.ethereum || !walletConnected) {
+        addAssistantMessage('❌ Please connect your wallet first.');
+        return;
      }
+    
+     try {
+        const provider = new BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+        
+        // Try to call a simple view function first
+        const contractInterface = new ethers.Interface([
+            'function getProjectStatistics() external view returns (uint256, uint256, uint256, uint256, uint256)'
+        ]);
+        
+        const contractAddress = "0xAcC8850B4664f0620fa013Ef4de5b52C57cef32C";
+        
+        // Create a call (not a transaction) to test
+        const callData = contractInterface.encodeFunctionData('getProjectStatistics', []);
+        
+        console.log('🧪 Testing contract call...');
+        console.log('   Contract:', contractAddress);
+        console.log('   Call data:', callData);
+        
+        // Use call instead of sendTransaction for view functions
+        const result = await provider.call({
+            to: contractAddress,
+            data: callData
+        });
+        
+        console.log('✅ Contract call successful! Result:', result);
+        addSystemMessage(`✅ Contract test call successful!`);
+        
+        } catch (error) {
+        console.error('❌ Contract test failed:', error);
+        addAssistantMessage(`❌ Contract test failed: ${error.message}`);
+        }
     }
     
     async function switchNetwork(chainId: number) {
@@ -539,98 +752,6 @@
         return num.toFixed(6);
     }
 
-    // async function handleSubmit() {
-    //  if (!input.trim() || isProcessing) return;
-    
-    //  const userInput = input;
-    //  addUserMessage(userInput);
-    //  input = '';
-    //  isProcessing = true;
-    
-    //  if (!backendConnected) {
-    //     addAssistantMessage('❌ Backend not connected.');
-    //     isProcessing = false;
-    //     return;
-    //  }
-    
-    //  if (!agentInitialized) {
-    //     addAssistantMessage('🤖 AI Agent not initialized.');
-    //     isProcessing = false;
-    //     return;
-    //  }
-    
-    //  if (!walletConnected) {
-    //     addAssistantMessage('🔐 Please connect your wallet first!');
-    //     isProcessing = false;
-    //     return;
-    //  }
-    
-    //  try {
-    //     const response = await fetch('http://localhost:3001/api/intents/signed', {
-    //         method: 'POST',
-    //         headers: { 
-    //             'Content-Type': 'application/json',
-    //             'Accept': 'application/json'
-    //         },
-    //         body: JSON.stringify({ 
-    //             user_input: userInput,
-    //             address: walletAddress,
-    //             chain_id: chainId,
-    //             signature: 'demo-signature-placeholder'
-    //         })
-    //     });
-        
-    //     if (response.ok) {
-    //         const data = await response.json();
-    //         addAssistantMessage(data.ai_message);
-            
-    //         if (data.data && data.data.transaction_data) {
-    //             pendingTransaction = data.data.transaction_data;
-    //             if (!pendingTransaction.chain_id) {
-    //                 console.log('⚠️ Chain ID missing from transaction data, using wallet chain ID:', chainId);
-    //                 pendingTransaction.chain_id = chainId;
-    //             }
-                
-    //             console.log('📝 Pending transaction ready:', pendingTransaction);
-    //             console.log('📊 Full backend data:', data.data);
-                
-    //             // Store backend data globally
-    //             window.lastBackendData = data.data;
-                
-    //             // AUTO-SIGN: Call signTransaction directly after a short delay
-    //             setTimeout(async () => {
-    //                 console.log('⏰ Auto-signing transaction...');
-    //                 try {
-    //                     const txHash = await signTransaction(pendingTransaction, data.data);
-    //                     if (txHash) {
-    //                         handleTransactionSuccess(txHash, data.data);
-    //                     }
-    //                 } catch (error) {
-    //                     console.error('Auto-sign error:', error);
-    //                     addAssistantMessage(`❌ Auto-sign failed: ${error.message}`);
-    //                 }
-    //             }, 1000); // 1 second delay to let user read the message
-                
-    //         } else if (data.data) {
-    //             // Just show data if no transaction needed
-    //             const cleanData = { ...data.data };
-    //             delete cleanData.user_id;
-    //             delete cleanData.internal_id;
-                
-    //             if (Object.keys(cleanData).length > 0) {
-    //                 addAssistantMessage(`📊 **Details:**\n\n\`\`\`json\n${JSON.stringify(cleanData, null, 2)}\n\`\`\``);
-    //             }
-    //         }
-    //     } else {
-    //         const errorText = await response.text();
-    //         addAssistantMessage(`❌ **Request Failed**\n\n${errorText}`);
-    //     }
-    //  } catch (error: any) {
-    //     addAssistantMessage(`❌ **Network Error**\n\n${error.message}`);
-    //  } finally {
-    //     isProcessing = false;
-    //  }
-    // }
     async function handleSubmit() {
      if (!input.trim() || isProcessing) return;
     
@@ -661,7 +782,7 @@
         isProcessing = false;
         return;
      }
-     
+    
      try {
         console.log('📤 Sending request to backend...');
         const response = await fetch('http://localhost:3001/api/intents/signed', {
@@ -682,9 +803,27 @@
         
         if (response.ok) {
             const data = await response.json();
-            console.log('📦 Backend data received:', data);
+            console.log('📦 Full backend response:', JSON.stringify(data, null, 2));
+            
+            // Debug the structure
+            console.log('🔍 Response structure analysis:');
+            console.log('   data object keys:', Object.keys(data));
+            console.log('   data.data exists:', !!data.data);
+            console.log('   data.data type:', typeof data.data);
+            
+            if (data.data) {
+                console.log('   data.data keys:', Object.keys(data.data));
+                console.log('   data.data.transaction_data exists:', !!data.data.transaction_data);
+                console.log('   data.transaction_data exists:', !!data.transaction_data);
+                
+                if (data.data.transaction_data) {
+                    console.log('   ✅ Found transaction_data in data.data:', data.data.transaction_data);
+                }
+            }
+            
             addAssistantMessage(data.ai_message);
             
+            // Check for transaction data
             if (data.data && data.data.transaction_data) {
                 pendingTransaction = data.data.transaction_data;
                 console.log('📝 Pending transaction set:', pendingTransaction);
@@ -696,16 +835,13 @@
                 
                 // Store backend data
                 window.lastBackendData = data.data;
-                console.log('💾 Stored backend data in window.lastBackendData');
+                console.log('💾 Stored backend data:', window.lastBackendData);
                 
                 // Auto-sign after delay
-                console.log('⏰ Setting up auto-sign timeout (500ms)...');
+                console.log('⏰ Setting up auto-sign timeout (1000ms)...');
                 setTimeout(() => {
                     console.log('🏃‍♂️ Auto-sign timeout triggered!');
-                    console.log('📊 Calling signTransaction with:', {
-                        transactionData: pendingTransaction,
-                        backendData: data.data
-                    });
+                    console.log('📊 Calling signTransaction with:', pendingTransaction);
                     
                     signTransaction(pendingTransaction, data.data)
                         .then(txHash => {
@@ -718,10 +854,10 @@
                             console.error('❌ signTransaction failed:', error);
                             addAssistantMessage(`❌ Auto-sign failed: ${error.message}`);
                         });
-                }, 500);
+                }, 1000);
                 
             } else {
-                console.log('📊 No transaction data, just showing details');
+                console.log('📊 No transaction data found in response');
                 if (data.data) {
                     const cleanData = { ...data.data };
                     delete cleanData.user_id;
@@ -740,10 +876,10 @@
      } catch (error: any) {
         console.error('❌ Network error:', error);
         addAssistantMessage(`❌ **Network Error**\n\n${error.message}`);
-        } finally {
-         console.log('🏁 handleSubmit completed');
-         isProcessing = false;
-        }
+     } finally {
+        console.log('🏁 handleSubmit completed');
+        isProcessing = false;
+     }
     }
     
     function handleTransactionSuccess(txHash: string, originalData: any) {
@@ -786,7 +922,6 @@
         }
     }
     
-    // Test backend connection
     async function testBackend() {
         isProcessing = true;
         addUserMessage('Test backend connection');
@@ -1135,6 +1270,14 @@
                     >
                     <div class="w-4 h-4">🔄</div>
                     <span>Manual Trigger Sign</span>
+                    </button>
+                    <button
+                     on:click={testContractCall}
+                     disabled={!walletConnected}
+                       class="w-full text-left px-3 py-2 text-sm bg-blue-900/30 hover:bg-blue-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2"
+                    >
+                    <div class="w-4 h-4">🧪</div>
+                <span>Test Contract Call</span>
                     </button>
                 </div>
             </div>
