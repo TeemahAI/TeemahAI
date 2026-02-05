@@ -239,13 +239,14 @@ impl IntentAgent {
      let token_name = format!("{} Token", name);
      let token_decimals = 18u8;
      let initial_supply = U256::from(1_000_000_000_000_000_000_000u128); // 1000 tokens with 18 decimals
-     let soft_cap = U256::from(1_000_000_000_000_000_000u128); // 1 ETH
-     let hard_cap = U256::from(10_000_000_000_000_000_000u128); // 10 ETH
-     let start_time = U256::from(std::time::SystemTime::now()
+    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() + 300); // Start in 5 minutes
-     let end_time = start_time + U256::from(30 * 24 * 60 * 60); // 30 days duration
+        .as_secs();
+     let soft_cap = U256::from(1_000_000_000_000_000_000u128); // 1 ETH
+     let hard_cap = U256::from(10_000_000_000_000_000_000u128); // 10 ETH
+     let start_time = U256::from(now + 60); // Start in 1 minute
+    let end_time = U256::from(now + (30 * 24 * 60 * 60)); // End in 30 days
      let token_price = U256::from(100_000_000_000_000u128); // 0.0001 ETH per token
      let tokens_for_sale = initial_supply * U256::from(70) / U256::from(100); // 70% of tokens for sale
      let liquidity_percent = 3000u16; // 30%
