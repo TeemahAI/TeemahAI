@@ -32,16 +32,7 @@ pub struct Investment {
 pub struct TokenData {
     pub address: String,
     pub name: String,
-    pub symbol: String,
-    pub token_price: U256,
-    pub total_raised: U256,
-    pub hard_cap: U256,
-    pub remaining_cap: U256,
-    pub liquidity_percent: U256,
-    pub investor_count: u64,
-    pub verified: bool,
-    pub risk_score: U256,
-    pub user_balance: U256,
+    pub symbol: String
 }
 
 impl Web3Service {
@@ -216,21 +207,6 @@ impl Web3Service {
         }
     }
     
-    pub async fn get_project_marketing_info(&self, project_id: &str) -> Result<Option<(U256, U256, U256)>> {
-        let project_addr = Address::from_str(project_id)?;
-        match self.launchpad_client.get_project_details(project_addr).await {
-            Ok(project) => {
-                let marketing_amount = (project.tokens_for_sale * U256::from(project.marketing_percent)) / U256::from(10000);
-                Ok(Some((
-                    U256::from(project.marketing_percent),
-                    project.marketing_telegram_id,
-                    marketing_amount,
-                )))
-            }
-            Err(_) => Ok(None),
-        }
-    }
-    
     pub async fn invest_in_project(&self, project_id: &str, amount_eth: f64) -> Result<String> {
         if self.is_read_only {
             return Err(anyhow!("Cannot invest: Web3Service is in read-only mode. Connect wallet first."));
@@ -276,74 +252,30 @@ impl Web3Service {
         
         use chrono::Utc;
         
-        // For now, use zero address as creator
-        // In a real implementation, you'd get this from the connected wallet
         let creator = Address::zero();
         
-        let project_name = name.clone();
         let token_name = format!("{} Token", name);
         let token_symbol = symbol.clone();
         let token_decimals = 18;
         let initial_supply = hard_cap * U256::from(2);
         
-        // Use current time + 5 minutes as start time
-        let now = Utc::now().timestamp() as u64;
-        let start_time = U256::from(now + 300);
-        
-        // Ensure end_time is in seconds
-        let project_end_time = if end_time < U256::from(1_000_000_000) {
-            // Likely provided in hours, convert to seconds
-            end_time * U256::from(3600)
-        } else {
-            end_time
-        };
-        
-        let token_price = U256::from(1_000_000_000_000_000u64); // 0.001 ETH
-        let tokens_for_sale = initial_supply * U256::from(70) / U256::from(100);
-        let liquidity_percent: u16 = 3000; // 30%
-        let marketing_percent: u16 = 500; // 5%
-        let marketing_telegram_id = U256::from(12345678u64);
-        
         let project_id = self.launchpad_client.create_project(
             creator,
-            project_name,
             token_name.clone(),
             token_symbol.clone(),
             token_decimals,
             initial_supply,
-            soft_cap,
-            hard_cap,
-            start_time,
-            project_end_time,
-            token_price,
-            tokens_for_sale,
-            liquidity_percent,
-            marketing_percent,
-            marketing_telegram_id,
         ).await?;
         
         Ok(format!(
             "✅ Project created successfully!\n\
-             📋 Project ID: {}\n\
              💰 Token Address: {}\n\
-             📈 Project Name: {}\n\
              🏷️ Token Name: {}\n\
              🔠 Token Symbol: {}\n\
-             💵 Soft Cap: {} ETH\n\
-             🎯 Hard Cap: {} ETH\n\
-             ⏰ Duration: {} days\n\
-             📊 Liquidity: {}%\n\
-             📢 Marketing: {}%",
+             ",
             project_id,
-            project_id,
-            name,
             token_name,
-            token_symbol,
-            ethers::utils::format_units(soft_cap, "ether").unwrap_or_default(),
-            ethers::utils::format_units(hard_cap, "ether").unwrap_or_default(),
-            project_end_time.as_u64() / 86400,
-            liquidity_percent / 100,
-            marketing_percent / 100
+            token_symbol
         ))
     }
     
@@ -393,16 +325,7 @@ impl Web3Service {
             Ok(Some(TokenData {
                 address: address.to_string(),
                 name: project.name,
-                symbol: project.symbol,
-                token_price: project.token_price,
-                total_raised: project.tokens_for_sale,
-                hard_cap: project.hard_cap,
-                remaining_cap: project.hard_cap - project.soft_cap,
-                liquidity_percent: U256::from(project.liquidity_percent),
-                investor_count: project.tokens_for_sale.as_u64(),
-                verified: true,
-                risk_score: U256::from(3),
-                user_balance: U256::zero(),
+                symbol: project.symbol
             }))
         } else {
             Ok(None)
@@ -420,14 +343,10 @@ impl Web3Service {
     pub fn provider_url(&self) -> &str {
         &self.provider_url
     }
-    
-    // Get client address for read-only mode (returns None)
     pub async fn get_client_address(&self) -> Result<Address> {
         if self.is_read_only {
             Err(anyhow!("Client is read-only, no address available"))
         } else {
-            // Try to extract address from signer middleware
-            // This is a simplified version - in real code you'd need proper downcasting
             Err(anyhow!("Cannot get client address in current implementation"))
         }
     }
