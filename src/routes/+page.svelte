@@ -151,7 +151,7 @@
                 body: JSON.stringify({ 
                     deepseek_api_key: "sk-fc91eb7c1b6f4df9acc85a3e2b3811b0",
                     rpc_url: "https://data-seed-prebsc-1-s1.binance.org:8545",
-                    contract_address: "0xAcC8850B4664f0620fa013Ef4de5b52C57cef32C"
+                    contract_address: "0x533dd86Fb1eC823e595C74dE548d59E20070ED83"
                 })
             });
             
@@ -277,7 +277,7 @@
         isConnectingWallet = false;
      }
     }
-        async function updateBalanceWithEthers(provider: BrowserProvider, address: string) {
+    async function updateBalanceWithEthers(provider: BrowserProvider, address: string) {
         try {
             const balance = await provider.getBalance(address);
             // Convert from wei to ETH
@@ -365,27 +365,16 @@
             
             // Create the contract interface with EXACT function signature
             const contractInterface = new ethers.Interface([
-                'function createProjectWithTokenViaTelegram(address creator, string project_name, string token_name, string token_symbol, uint8 token_decimals, uint256 initial_supply, uint256 soft_cap, uint256 hard_cap, uint256 start_time, uint256 end_time, uint256 token_price, uint256 tokens_for_sale, uint16 liquidity_percent, uint16 marketing_percent, uint256 marketing_telegram_id) external returns (address)'
+                'function createProjectWithTokenViaTelegram(address creator, string token_name, string token_symbol, uint8 token_decimals, uint256 initial_supply) external returns (address)'
             ]);
             
             // Log parameter types for debugging
             console.log('🔧 Parameter types check:');
             console.log('   creator (address):', walletAddress, 'type:', typeof walletAddress);
-            console.log('   project_name (string):', params.project_name, 'type:', typeof params.project_name);
             console.log('   token_name (string):', params.token_name, 'type:', typeof params.token_name);
             console.log('   token_symbol (string):', params.token_symbol, 'type:', typeof params.token_symbol);
             console.log('   token_decimals (uint8):', params.token_decimals, 'type:', typeof params.token_decimals);
             console.log('   initial_supply (uint256):', params.initial_supply, 'type:', typeof params.initial_supply);
-            console.log('   soft_cap (uint256):', params.soft_cap, 'type:', typeof params.soft_cap);
-            console.log('   hard_cap (uint256):', params.hard_cap, 'type:', typeof params.hard_cap);
-            console.log('   start_time (uint256):', params.start_time, 'type:', typeof params.start_time);
-            console.log('   end_time (uint256):', params.end_time, 'type:', typeof params.end_time);
-            console.log('   token_price (uint256):', params.token_price, 'type:', typeof params.token_price);
-            console.log('   tokens_for_sale (uint256):', params.tokens_for_sale, 'type:', typeof params.tokens_for_sale);
-            console.log('   liquidity_percent (uint16):', params.liquidity_percent, 'type:', typeof params.liquidity_percent);
-            console.log('   marketing_percent (uint16):', params.marketing_percent, 'type:', typeof params.marketing_percent);
-            console.log('   marketing_telegram_id (uint256):', params.marketing_telegram_id, 'type:', typeof params.marketing_telegram_id);
-            
             try {
                 // Convert parameters to correct types
                 const creatorAddress = walletAddress; // Use actual wallet address, not zero address
@@ -393,47 +382,19 @@
                 // Parse string numbers to proper types
                 const tokenDecimals = parseInt(params.token_decimals);
                 const initialSupply = ethers.toBigInt(params.initial_supply);
-                const softCap = ethers.toBigInt(params.soft_cap);
-                const hardCap = ethers.toBigInt(params.hard_cap);
-                const startTime = ethers.toBigInt(params.start_time);
-                const endTime = ethers.toBigInt(params.end_time);
-                const tokenPrice = ethers.toBigInt(params.token_price);
-                const tokensForSale = ethers.toBigInt(params.tokens_for_sale);
-                const liquidityPercent = parseInt(params.liquidity_percent);
-                const marketingPercent = parseInt(params.marketing_percent);
-                const marketingTelegramId = ethers.toBigInt(params.marketing_telegram_id);
-                
                 console.log('🔢 Converted parameters:');
                 console.log('   creatorAddress:', creatorAddress);
                 console.log('   tokenDecimals (number):', tokenDecimals);
                 console.log('   initialSupply (bigint):', initialSupply.toString());
-                console.log('   softCap (bigint):', softCap.toString());
-                console.log('   hardCap (bigint):', hardCap.toString());
-                console.log('   startTime (bigint):', startTime.toString());
-                console.log('   endTime (bigint):', endTime.toString());
-                console.log('   tokenPrice (bigint):', tokenPrice.toString());
-                console.log('   tokensForSale (bigint):', tokensForSale.toString());
-                console.log('   liquidityPercent (number):', liquidityPercent);
-                console.log('   marketingPercent (number):', marketingPercent);
-                console.log('   marketingTelegramId (bigint):', marketingTelegramId.toString());
+               
                 
                 // Encode the function call
                 const encodedData = contractInterface.encodeFunctionData('createProjectWithTokenViaTelegram', [
                     creatorAddress,
-                    params.project_name,
                     params.token_name,
                     params.token_symbol,
                     tokenDecimals,
-                    initialSupply,
-                    softCap,
-                    hardCap,
-                    startTime,
-                    endTime,
-                    tokenPrice,
-                    tokensForSale,
-                    liquidityPercent,
-                    marketingPercent,
-                    marketingTelegramId
+                    initialSupply
                 ]);
                 
                 console.log('📦 Encoded contract data length:', encodedData.length);
@@ -460,6 +421,7 @@
                 console.error('❌ Encoding error details:', encodingError.message);
                 console.error('❌ Encoding error stack:', encodingError.stack);
                 throw new Error(`Failed to encode contract call: ${encodingError.message}`);
+                
             }
             
         } else {
@@ -503,16 +465,15 @@
             const gasEstimate = await provider.estimateGas(tx);
             console.log('✅ Gas estimate:', gasEstimate.toString());
             
-            // Add 20% buffer
             const gasWithBuffer = (gasEstimate * 120n) / 100n;
-            tx.gasLimit = gasWithBuffer;
+            tx.gasLimit = 8000000n; // 8 million gas for token creation
             console.log('✅ Gas with buffer:', gasWithBuffer.toString());
             
         } catch (gasError) {
             console.warn('⚠️ Gas estimation failed:', gasError.message);
             console.log('⚠️ Using default gas limit');
             // Use a safe default for contract calls
-            tx.gasLimit = 500000n; // 500k gas
+             tx.gasLimit = 8000000n; // 8 million gas for token creation
         }
         
         // Get gas price
@@ -572,6 +533,7 @@
             }
             
             isSigningTransaction = false;
+            clearPendingTransaction(); // 🚨 ADD THIS LINE
             return receipt.hash;
         }
         
@@ -588,6 +550,10 @@
         });
         
         isSigningTransaction = false;
+        clearPendingTransaction(); // 🚨 ADD THIS LINE
+
+        pendingTransaction = null; 
+
         
         // Provide user-friendly error messages
         if (error.code === 4001) {
@@ -630,7 +596,7 @@
             'function getProjectStatistics() external view returns (uint256, uint256, uint256, uint256, uint256)'
         ]);
         
-        const contractAddress = "0xAcC8850B4664f0620fa013Ef4de5b52C57cef32C";
+        const contractAddress = "0x533dd86Fb1eC823e595C74dE548d59E20070ED83";
         
         // Create a call (not a transaction) to test
         const callData = contractInterface.encodeFunctionData('getProjectStatistics', []);
@@ -653,35 +619,10 @@
         addAssistantMessage(`❌ Contract test failed: ${error.message}`);
         }
     }
-    
-    async function switchNetwork(chainId: number) {
-        if (!window.ethereum) return false;
-        
-        const chainIdHex = `0x${chainId.toString(16)}`;
-        
-        try {
-            await window.ethereum.request({
-                method: 'wallet_switchEthereumChain',
-                params: [{ chainId: chainIdHex }],
-            });
-            return true;
-        } catch (switchError: any) {
-            // If network is not added, try to add it
-            if (switchError.code === 4902) {
-                try {
-                    const networkParams = getNetworkParams(chainId);
-                    await window.ethereum.request({
-                        method: 'wallet_addEthereumChain',
-                        params: [networkParams],
-                    });
-                    return true;
-                } catch (addError) {
-                    console.error('Failed to add network:', addError);
-                    return false;
-                }
-            }
-            return false;
-        }
+    function clearPendingTransaction() {
+     pendingTransaction = null;
+     window.lastBackendData = null;
+     console.log('🧹 Cleared pending transaction and backend data');
     }
     
     // Helper to get network name
@@ -694,48 +635,6 @@
             case 137: return 'Polygon Mainnet';
             case 80001: return 'Polygon Mumbai Testnet';
             default: return `Chain ${chainId}`;
-        }
-    }
-    
-    // Helper to get network params for adding to MetaMask
-    function getNetworkParams(chainId: number) {
-        switch (chainId) {
-            case 97: // BSC Testnet
-                return {
-                    chainId: '0x61',
-                    chainName: 'BNB Smart Chain Testnet',
-                    nativeCurrency: {
-                        name: 'BNB',
-                        symbol: 'BNB',
-                        decimals: 18
-                    },
-                    rpcUrls: ['https://data-seed-prebsc-1-s1.binance.org:8545/'],
-                    blockExplorerUrls: ['https://testnet.bscscan.com/']
-                };
-            case 56: // BSC Mainnet
-                return {
-                    chainId: '0x38',
-                    chainName: 'BNB Smart Chain Mainnet',
-                    nativeCurrency: {
-                        name: 'BNB',
-                        symbol: 'BNB',
-                        decimals: 18
-                    },
-                    rpcUrls: ['https://bsc-dataseed.binance.org/'],
-                    blockExplorerUrls: ['https://bscscan.com/']
-                };
-            default:
-                return {
-                    chainId: `0x${chainId.toString(16)}`,
-                    chainName: `Chain ${chainId}`,
-                    nativeCurrency: {
-                        name: 'ETH',
-                        symbol: 'ETH',
-                        decimals: 18
-                    },
-                    rpcUrls: ['https://rpc.example.com'],
-                    blockExplorerUrls: ['https://explorer.example.com']
-                };
         }
     }
     
@@ -899,8 +798,7 @@
             addSystemMessage(`🔗 View on explorer: ${getExplorerUrl(txHash, chainId)}`);
         }
         
-        // Clear pending transaction
-        pendingTransaction = null;
+     clearPendingTransaction(); // 🚨 ADD THIS
     }
     
     function getExplorerUrl(txHash: string, chainId: number): string {
