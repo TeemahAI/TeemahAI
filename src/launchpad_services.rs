@@ -10,7 +10,7 @@ use anyhow::Result;
 abigen!(
     MechaLaunchpad,
     r#"[
-        function createProjectWithTokenViaTelegram(address, string, string,string,uint8, uint256, uint256, uint256, uint256, uint256,uint256,uint256,uint16,uint16,uint256) external returns (address)
+        function createProjectWithTokenViaTelegram(address, string, string,uint8, uint256) external returns (address)
         function invest(address) external payable
         function claimTokens(address) external
         function completeProject(address) external
@@ -36,16 +36,8 @@ pub struct Project {
     pub creator: Address,
     pub name: String,
     pub symbol: String,
+    pub decimal: u8,
     pub initial_supply: U256,
-    pub soft_cap: U256,
-    pub hard_cap: U256,
-    pub start_time: U256,
-    pub end_time: U256,
-    pub token_price: U256,
-    pub tokens_for_sale: U256,
-    pub liquidity_percent: U256,
-    pub marketing_percent: U256,
-    pub marketing_telegram_id: U256,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -160,16 +152,8 @@ impl LaunchpadClient {
         creator,
         name: name.to_string(),
         symbol: symbol.to_string(),
+        decimal: 9,
         initial_supply: U256::zero(),
-        soft_cap,
-        hard_cap,
-        start_time,
-        end_time,
-        token_price: U256::zero(),
-        tokens_for_sale: U256::zero(), 
-        liquidity_percent: U256::zero(),
-        marketing_percent: U256::zero(), 
-        marketing_telegram_id: U256::zero(), 
       })
     }
         
@@ -241,39 +225,19 @@ impl LaunchpadClient {
     }
     
     pub async fn create_project(
-    &self,
-    creator: Address,
-    project_name: String,
-    token_name: String,
-    token_symbol: String,
-    token_decimals: u8,
-    initial_supply: U256,
-    soft_cap: U256,
-    hard_cap: U256,
-    start_time: U256,
-    end_time: U256,
-    token_price: U256,
-    tokens_for_sale: U256,
-    liquidity_percent: u16,
-    marketing_percent: u16,
-    marketing_telegram_id: U256,
-) -> Result<Address> {
+     &self,
+     creator: Address,
+     token_name: String,
+     token_symbol: String,
+     token_decimals: u8,
+     initial_supply: U256,
+    ) -> Result<Address> {
      let create_call = self.contract.create_project_with_token_via_telegram(
             creator,
-            project_name,
             token_name,
             token_symbol,
             token_decimals,
-            initial_supply,
-            soft_cap,
-            hard_cap,
-            start_time,
-            end_time,
-            token_price,
-            tokens_for_sale,
-            liquidity_percent,
-            marketing_percent,
-            marketing_telegram_id,
+            initial_supply
         );
 
         let gas_estimate = create_call.estimate_gas().await.unwrap_or(U256::from(300_000_000));
@@ -356,8 +320,8 @@ impl LaunchpadClient {
         
         for address in project_addresses {
             if let Ok(project) = self.get_project(address).await {
-                let progress = if project.hard_cap > U256::zero() {
-                    (project.tokens_for_sale * U256::from(100)) / project.hard_cap
+                let progress = if project.initial_supply > U256::zero() {
+                    (project.initial_supply * U256::from(100)) / project.initial_supply
                 } else {
                     U256::zero()
                 };
@@ -365,19 +329,15 @@ impl LaunchpadClient {
                 summaries.push(ProjectSummary {
                     id: project.creator,
                     name: project.name,
-                    total_raised: project.tokens_for_sale,
-                    hard_cap: project.hard_cap,
-                    //status: project.hard_cap.as_u8(),
+                    total_raised: project.initial_supply,
+                    hard_cap: project.initial_supply,
                     progress: progress.as_u64(),
                 });
             }
         }
         
         Ok(summaries)
-    }
-    
-    // Event Listeners
-    
+    }    
     pub async fn listen_project_created(&self) -> Result<()> {
         let filter = Filter::new()
             .address(ValueOrArray::Value(self.contract.address()))
