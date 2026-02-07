@@ -110,7 +110,7 @@
         if (currentIndex >= fullContent.length) {
             stopTypingEffect(messageId);
             // Trigger any pending action after this message finishes typing
-            triggerPendingActionIfNeeded(messageId);
+          //  triggerPendingActionIfNeeded(messageId);
             return;
         }
         
@@ -123,21 +123,21 @@
         messages = [...messages];
         
         // Schedule next character with variable delay
-        let delay = 30; // Slower base delay for better readability
+        let delay = 10; // Slower base delay for better readability
         
         // Add longer delays for punctuation and line breaks
         if (nextChar === '.' || nextChar === '!' || nextChar === '?') {
-            delay = 300; // Longer pause after sentences
+            delay = 100; // Longer pause after sentences
         } else if (nextChar === ',' || nextChar === ';') {
-            delay = 150; // Pause after commas
+            delay = 50; // Pause after commas
         } else if (nextChar === '\n') {
-            delay = 200; // Pause after line breaks
+            delay = 80; // Pause after line breaks
         } else if (nextChar === ' ') {
-            delay = 50; // Slight pause after spaces
+            delay = 20; // Slight pause after spaces
         }
         
         // Random variation for natural feel
-        delay += Math.random() * 30;
+        delay += Math.random() * 15;
         
         typingTimeout = setTimeout(() => {
             typeMessageCharacter(messageId, fullContent, currentIndex + 1);
