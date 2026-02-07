@@ -599,13 +599,13 @@
             
             // Send transaction
             const txResponse = await signer.sendTransaction(tx);
-            addSystemMessage(`✅ Transaction sent! Hash: ${txResponse.hash}\n⏳ Waiting for confirmation...`);
+         //   addSystemMessage(`✅ Transaction sent! Hash: ${txResponse.hash}\n⏳ Waiting for confirmation...`);
             
             const receipt = await txResponse.wait();
             
             if (receipt && receipt.hash) {
                 if (receipt.status === 1) {
-                    addSystemMessage(`🎉 Transaction confirmed! Hash: ${receipt.hash}`);
+               //     addSystemMessage(`🎉 Transaction confirmed! Hash: ${receipt.hash}`);
                 } else {
                     addSystemMessage(`⚠️ Transaction failed! Hash: ${receipt.hash} (Status: ${receipt.status})`);
                     throw new Error(`Transaction failed with status ${receipt.status}`);
@@ -766,7 +766,7 @@
     
     function handleTransactionSuccess(txHash: string, originalData: any) {
         addAssistantMessage(`🎉 Transaction Successful!\n\nTransaction Hash: \`${txHash}\``);
-        addSystemMessage(`🔗 View on explorer: ${getExplorerUrl(txHash, chainId)}`);
+      //  addSystemMessage(`🔗 View on explorer: ${getExplorerUrl(txHash, chainId)}`);
         clearPendingTransaction();
     }
     
