@@ -19,6 +19,7 @@
     declare global {
         interface Window {
             ethereum?: EthereumProvider;
+            lastBackendData?: any;
         }
     }
     
@@ -27,14 +28,20 @@
         {
             id: 1,
             role: 'assistant' as const,
-            content: '🚀 **Welcome to Teemah AI**\n\nConnect your wallet to start making on-chain transactions!',
-            timestamp: new Date()
+            content: '🚀 Welcome to Teemah AI\n\nConnect your wallet to start making on-chain transactions!',
+            timestamp: new Date(),
+            isTyping: false,
+            isComplete: true,
+            isThinking: false
         }
     ];
     let input = '';
     let isProcessing = false;
     let backendConnected = false;
     let isTestingConnection = false;
+    let typingMessageId: number | null = null;
+    let typingTimeout: any = null;
+    let isTypingComplete = false;
     
     // Wallet state
     let walletConnected = false;
@@ -68,25 +75,205 @@
         await checkWalletConnection();
         setupWalletListeners();
     });
-    
-    // Setup wallet event listeners
+
+    // ============ TYPING EFFECT FUNCTIONS ============
+    function startTypingEffect(messageId: number) {
+        typingMessageId = messageId;
+        isTypingComplete = false;
+        const messageIndex = messages.findIndex(m => m.id === messageId);
+        if (messageIndex !== -1) {
+            messages[messageIndex].isTyping = true;
+            messages[messageIndex].isComplete = false;
+            messages = [...messages];
+        }
+    }
+
+    function stopTypingEffect(messageId: number) {
+        typingMessageId = null;
+        isTypingComplete = true;
+        const messageIndex = messages.findIndex(m => m.id === messageId);
+        if (messageIndex !== -1) {
+            messages[messageIndex].isTyping = false;
+            messages[messageIndex].isComplete = true;
+            messages = [...messages];
+        }
+    }
+
+    function cancelTyping() {
+        if (typingTimeout) {
+            clearTimeout(typingTimeout);
+            typingTimeout = null;
+        }
+        if (typingMessageId !== null) {
+            stopTypingEffect(typingMessageId);
+        }
+    }
+
+    function typeMessageCharacter(messageId: number, fullContent: string, currentIndex: number) {
+        if (currentIndex >= fullContent.length) {
+            stopTypingEffect(messageId);
+            return;
+        }
+        
+        const messageIndex = messages.findIndex(m => m.id === messageId);
+        if (messageIndex === -1) return;
+        
+        // Add next character
+        const nextChar = fullContent[currentIndex];
+        messages[messageIndex].content += nextChar;
+        messages = [...messages];
+        
+        // Schedule next character with variable delay
+        let delay = 30; // Slower base delay for better readability
+        
+        // Add longer delays for punctuation and line breaks
+        if (nextChar === '.' || nextChar === '!' || nextChar === '?') {
+            delay = 300; // Longer pause after sentences
+        } else if (nextChar === ',' || nextChar === ';') {
+            delay = 150; // Pause after commas
+        } else if (nextChar === '\n') {
+            delay = 200; // Pause after line breaks
+        } else if (nextChar === ' ') {
+            delay = 50; // Slight pause after spaces
+        }
+        
+        // Random variation for natural feel
+        delay += Math.random() * 30;
+        
+        typingTimeout = setTimeout(() => {
+            typeMessageCharacter(messageId, fullContent, currentIndex + 1);
+        }, delay);
+    }
+
+    function simulateTyping(messageId: number, fullContent: string) {
+        startTypingEffect(messageId);
+        
+        // Clear any existing timeout
+        if (typingTimeout) {
+            clearTimeout(typingTimeout);
+        }
+        
+        // Start typing after a short delay
+        setTimeout(() => {
+            const messageIndex = messages.findIndex(m => m.id === messageId);
+            if (messageIndex !== -1) {
+                messages[messageIndex].content = '';
+                messages = [...messages];
+            }
+            
+            // Start typing characters
+            typeMessageCharacter(messageId, fullContent, 0);
+        }, 500); // Slight delay before starting to type
+    }
+
+    // ============ MESSAGE FUNCTIONS ============
+    function addUserMessage(content: string) {
+        const newId = messages.length + 1;
+        messages = [...messages, {
+            id: newId,
+            role: 'user' as const,
+            content,
+            timestamp: new Date(),
+            isTyping: false,
+            isComplete: true,
+            isThinking: false
+        }];
+    }
+
+    function addAssistantMessage(content: string) {
+        const newId = messages.length + 1;
+        messages = [...messages, {
+            id: newId,
+            role: 'assistant' as const,
+            content: '',
+            timestamp: new Date(),
+            isTyping: true,
+            isComplete: false,
+            isThinking: false
+        }];
+        
+        // Start typing effect
+        setTimeout(() => {
+            simulateTyping(newId, content);
+        }, 300);
+        
+        return newId;
+    }
+
+    function addSystemMessage(content: string) {
+        const newId = messages.length + 1;
+        messages = [...messages, {
+            id: newId,
+            role: 'assistant' as const,
+            content: `⚙️ ${content}`,
+            timestamp: new Date(),
+            isTyping: false,
+            isComplete: true,
+            isThinking: false
+        }];
+    }
+
+    function addThinkingIndicator() {
+        const thinkingId = messages.length + 1;
+        messages = [...messages, {
+            id: thinkingId,
+            role: 'assistant' as const,
+            content: '🤔 Thinking...',
+            timestamp: new Date(),
+            isTyping: false,
+            isComplete: true,
+            isThinking: true
+        }];
+        return thinkingId;
+    }
+
+    function replaceThinkingWithResponse(thinkingId: number, response: string) {
+        const thinkingIndex = messages.findIndex(m => m.id === thinkingId);
+        if (thinkingIndex !== -1) {
+            messages.splice(thinkingIndex, 1);
+            messages = [...messages];
+            addAssistantMessage(response);
+        }
+    }
+
+    // ============ UTILITY FUNCTIONS ============
+    function formatMessageContent(content: string): string {
+        if (!content) return '';
+        
+        // Simple formatting - no bold headers, just normal text
+        return content
+            .replace(/\n/g, '<br>')
+            .replace(/`([^`]+)`/g, '<code class="bg-gray-700 px-1.5 py-0.5 rounded font-mono text-sm">$1</code>')
+            .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold
+            .replace(/\*([^*]+)\*/g, '$1') // Remove italic
+            .replace(/^# (.*$)/gm, '<div class="text-base mt-2 mb-1">$1</div>')
+            .replace(/^## (.*$)/gm, '<div class="text-base mt-2 mb-1">$1</div>')
+            .replace(/^### (.*$)/gm, '<div class="text-base mt-2 mb-1">$1</div>')
+            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="text-blue-400 hover:text-blue-300 underline">$1</a>');
+    }
+
+    function clearPendingTransaction() {
+        pendingTransaction = null;
+        if (window.lastBackendData) {
+            window.lastBackendData = null;
+        }
+        console.log('🧹 Cleared pending transaction');
+    }
+
+    // ============ WALLET FUNCTIONS ============
     function setupWalletListeners() {
         if (window.ethereum) {
-            // Listen for account changes
             window.ethereum.on('accountsChanged', (accounts: string[]) => {
                 console.log('Accounts changed:', accounts);
                 if (accounts.length === 0) {
-                    // User disconnected wallet
                     handleWalletDisconnect();
                 } else {
-                    // Account changed
                     walletAddress = accounts[0];
                     addSystemMessage(`🔄 Account changed: ${shortenAddress(walletAddress)}`);
                     updateWalletInfo();
                 }
             });
             
-            // Listen for chain changes
             window.ethereum.on('chainChanged', (chainIdHex: string) => {
                 console.log('Chain changed:', chainIdHex);
                 const newChainId = parseInt(chainIdHex, 16);
@@ -95,7 +282,6 @@
                 updateWalletInfo();
             });
             
-            // Listen for wallet disconnect
             window.ethereum.on('disconnect', (error: any) => {
                 console.log('Wallet disconnected:', error);
                 handleWalletDisconnect();
@@ -116,7 +302,6 @@
         await updateWalletBalance();
     }
     
-    // Check if backend is running
     async function checkBackendConnection() {
         isTestingConnection = true;
         try {
@@ -134,7 +319,6 @@
         }
     }
     
-    // Initialize AI Agent
     async function initializeAgent() {
         if (isInitializingAgent) return;
         
@@ -151,7 +335,7 @@
                 body: JSON.stringify({ 
                     deepseek_api_key: "sk-fc91eb7c1b6f4df9acc85a3e2b3811b0",
                     rpc_url: "https://data-seed-prebsc-1-s1.binance.org:8545",
-                    contract_address: "0x533dd86Fb1eC823e595C74dE548d59E20070ED83"
+                    contract_address: "0xE7392b8ee167980602d38225674bB377De5Fe287"
                 })
             });
             
@@ -174,7 +358,6 @@
         }
     }
     
-    // Check agent status
     async function checkAgentStatus() {
         try {
             const response = await fetch('http://localhost:3001/api/agent/status');
@@ -189,7 +372,6 @@
         return null;
     }
     
-    // Check wallet connection status
     async function checkWalletConnection() {
         try {
             const response = await fetch('http://localhost:3001/api/wallet/status');
@@ -207,90 +389,67 @@
     }
 
     async function connectMetaMask() {
-     if (typeof window.ethereum === 'undefined') {
-        addAssistantMessage('❌ MetaMask not detected.');
-        return;
-     }
-    
-     isConnectingWallet = true;
-     try {
-        const provider = new BrowserProvider(window.ethereum);
-        
-        console.log('🔄 Connecting to MetaMask...');
-        
-        // Request account access
-        const accounts = await window.ethereum.request({ 
-            method: 'eth_requestAccounts' 
-        });
-        
-        if (accounts.length === 0) {
-            throw new Error('No accounts found');
+        if (typeof window.ethereum === 'undefined') {
+            addAssistantMessage('❌ MetaMask not detected.');
+            return;
         }
         
-        const address = accounts[0];
-        console.log('✅ Got address:', address);
-        
-        // Get chain ID
-        const chainIdHex = await window.ethereum.request({ 
-            method: 'eth_chainId' 
-        });
-        const chainId = parseInt(chainIdHex, 16);
-        console.log('✅ Got chain ID:', chainId);
-        
-        // Connect to backend
-        const response = await fetch('http://localhost:3001/api/wallet/connect', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify({ 
-                address,
-                chain_id: chainId,
-                wallet_type: 'MetaMask'
-            })
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            walletConnected = true;
-            walletAddress = address;
-            walletType = 'MetaMask';
-            
-            addSystemMessage(`✅ MetaMask connected: ${shortenAddress(address)} on chain ${chainId}`);
-            
-            // Update balance
-            const balance = await provider.getBalance(address);
-            walletBalance = (Number(balance) / 1e18).toFixed(6);
-            
-            console.log('✅ Wallet fully connected:', {
-                address: walletAddress,
-                connected: walletConnected,
-                balance: walletBalance,
-                chainId: chainId
-            });
-        }
-     } catch (error: any) {
-        console.error('Failed to connect wallet:', error);
-        addAssistantMessage(`❌ Failed to connect wallet: ${error.message}`);
-     } finally {
-        isConnectingWallet = false;
-     }
-    }
-    async function updateBalanceWithEthers(provider: BrowserProvider, address: string) {
+        isConnectingWallet = true;
         try {
-            const balance = await provider.getBalance(address);
-            // Convert from wei to ETH
-            walletBalance = (Number(balance) / 1e18).toFixed(6);
-        } catch (error) {
-            console.error('Failed to get balance:', error);
+            const provider = new BrowserProvider(window.ethereum);
+            
+            const accounts = await window.ethereum.request({ 
+                method: 'eth_requestAccounts' 
+            });
+            
+            if (accounts.length === 0) {
+                throw new Error('No accounts found');
+            }
+            
+            const address = accounts[0];
+            const chainIdHex = await window.ethereum.request({ 
+                method: 'eth_chainId' 
+            });
+            const chainId = parseInt(chainIdHex, 16);
+            
+            const response = await fetch('http://localhost:3001/api/wallet/connect', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    address,
+                    chain_id: chainId,
+                    wallet_type: 'MetaMask'
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                walletConnected = true;
+                walletAddress = address;
+                walletType = 'MetaMask';
+                
+                addSystemMessage(`✅ MetaMask connected: ${shortenAddress(address)} on chain ${chainId}`);
+                
+                const balance = await provider.getBalance(address);
+                walletBalance = (Number(balance) / 1e18).toFixed(6);
+                
+            }
+        } catch (error: any) {
+            console.error('Failed to connect wallet:', error);
+            addAssistantMessage(`❌ Failed to connect wallet: ${error.message}`);
+        } finally {
+            isConnectingWallet = false;
         }
     }
-        async function connectWalletConnect() {
+
+    async function connectWalletConnect() {
         addAssistantMessage('🔗 WalletConnect integration coming soon!');
-        // Implement WalletConnect connection here
     }
-        async function disconnectWallet() {
+
+    async function disconnectWallet() {
         try {
             const response = await fetch('http://localhost:3001/api/wallet/disconnect', {
                 method: 'POST',
@@ -311,7 +470,8 @@
             console.error('Failed to disconnect wallet:', error);
         }
     }
-        async function updateWalletBalance() {
+
+    async function updateWalletBalance() {
         try {
             const response = await fetch('http://localhost:3001/api/wallet/balance');
             const data = await response.json();
@@ -322,485 +482,263 @@
             console.error('Failed to get balance:', error);
         }
     }
+
+    // ============ TRANSACTION FUNCTIONS ============
     async function signTransaction(transactionData: any, backendData: any = null): Promise<string | null> {
-     console.log('🚨🚨🚨 SIGNTRANSACTION FUNCTION CALLED! 🚨🚨🚨');
-     console.log('1. Transaction data:', transactionData);
-     console.log('2. Backend data action:', backendData?.action);
-     console.log('3. Wallet connected:', walletConnected);
-     console.log('4. window.ethereum exists:', !!window.ethereum);
-    
-     if (!window.ethereum || !walletConnected) {
-        console.log('❌ No ethereum provider or wallet not connected');
-        addAssistantMessage('❌ Please connect your wallet first.');
-        return null;
-     }
-    
-     isSigningTransaction = true;
-    
-     try {
-        const provider = new BrowserProvider(window.ethereum);
-        const signer = await provider.getSigner();
+        if (!window.ethereum || !walletConnected) {
+            addAssistantMessage('❌ Please connect your wallet first.');
+            return null;
+        }
         
-        console.log('🔍 Transaction data received:', transactionData);
-        console.log('   To:', transactionData.to);
-        console.log('   Data:', transactionData.data);
-        console.log('   Value:', transactionData.value);
-        console.log('   Chain ID:', transactionData.chain_id);
-        console.log('   Backend data available:', !!backendData);
+        isSigningTransaction = true;
         
-        // Check if we have backend data with parameters for contract call
-        const isCreateProject = backendData?.action === 'create_project';
-        
-        console.log('🔨 Is create project transaction?', isCreateProject);
-        console.log('🔨 Has parameters?', !!backendData?.parameters);
-        
-        let tx;
-        if (isCreateProject && backendData?.parameters) {
-            console.log('🔨 Creating contract call for project creation');
+        try {
+            const provider = new BrowserProvider(window.ethereum);
+            const signer = await provider.getSigner();
             
-            // Get parameters from backend data
-            const params = backendData.parameters;
+            const isCreateProject = backendData?.action === 'create_project';
+            let tx;
             
-            console.log('📋 Parameters received:', JSON.stringify(params, null, 2));
-            
-            // Create the contract interface with EXACT function signature
-            const contractInterface = new ethers.Interface([
-                'function createProjectWithTokenViaTelegram(address creator, string token_name, string token_symbol, uint8 token_decimals, uint256 initial_supply) external returns (address)'
-            ]);
-            
-            // Log parameter types for debugging
-            console.log('🔧 Parameter types check:');
-            console.log('   creator (address):', walletAddress, 'type:', typeof walletAddress);
-            console.log('   token_name (string):', params.token_name, 'type:', typeof params.token_name);
-            console.log('   token_symbol (string):', params.token_symbol, 'type:', typeof params.token_symbol);
-            console.log('   token_decimals (uint8):', params.token_decimals, 'type:', typeof params.token_decimals);
-            console.log('   initial_supply (uint256):', params.initial_supply, 'type:', typeof params.initial_supply);
-            try {
-                // Convert parameters to correct types
-                const creatorAddress = walletAddress; // Use actual wallet address, not zero address
-                
-                // Parse string numbers to proper types
-                const tokenDecimals = parseInt(params.token_decimals);
-                const initialSupply = ethers.toBigInt(params.initial_supply);
-                console.log('🔢 Converted parameters:');
-                console.log('   creatorAddress:', creatorAddress);
-                console.log('   tokenDecimals (number):', tokenDecimals);
-                console.log('   initialSupply (bigint):', initialSupply.toString());
-               
-                
-                // Encode the function call
-                const encodedData = contractInterface.encodeFunctionData('createProjectWithTokenViaTelegram', [
-                    creatorAddress,
-                    params.token_name,
-                    params.token_symbol,
-                    tokenDecimals,
-                    initialSupply
+            if (isCreateProject && backendData?.parameters) {
+                const params = backendData.parameters;
+                const contractInterface = new ethers.Interface([
+                    'function createProjectWithTokenViaTelegram(address creator, string token_name, string token_symbol, uint8 token_decimals, uint256 initial_supply) external returns (address)'
                 ]);
                 
-                console.log('📦 Encoded contract data length:', encodedData.length);
-                console.log('📦 Encoded data (first 100 chars):', encodedData.substring(0, 100));
-                console.log('📦 Function selector:', encodedData.substring(0, 10));
-                console.log('📦 Full encoded data available for inspection');
-                
-                tx = {
-                    to: transactionData.to,
-                    data: encodedData,
-                    value: ethers.parseEther(transactionData.value || "0"),
-                    chainId: transactionData.chain_id,
-                };
-                
-                console.log('📤 Transaction to send:', {
-                    to: tx.to,
-                    dataLength: tx.data.length,
-                    value: tx.value.toString(),
-                    chainId: tx.chainId
-                });
-                
-            } catch (encodingError) {
-                console.error('❌ Encoding error:', encodingError);
-                console.error('❌ Encoding error details:', encodingError.message);
-                console.error('❌ Encoding error stack:', encodingError.stack);
-                throw new Error(`Failed to encode contract call: ${encodingError.message}`);
-                
-            }
-            
-        } else {
-            console.log('⚠️ Not a create project transaction or missing parameters');
-            
-            // For regular transactions (invest, etc.)
-            const isTestTransaction = transactionData.to === walletAddress;
-            
-            if (isTestTransaction) {
+                try {
+                    const creatorAddress = walletAddress;
+                    const tokenDecimals = parseInt(params.token_decimals);
+                    const initialSupply = ethers.toBigInt(params.initial_supply);
+                    
+                    const encodedData = contractInterface.encodeFunctionData('createProjectWithTokenViaTelegram', [
+                        creatorAddress,
+                        params.token_name,
+                        params.token_symbol,
+                        tokenDecimals,
+                        initialSupply
+                    ]);
+                    
+                    tx = {
+                        to: transactionData.to,
+                        data: encodedData,
+                        value: ethers.parseEther(transactionData.value || "0"),
+                        chainId: transactionData.chain_id,
+                    };
+                    
+                } catch (encodingError) {
+                    throw new Error(`Failed to encode contract call: ${encodingError.message}`);
+                }
+            } else {
+                // Simple test transaction
                 tx = {
                     to: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
                     value: ethers.parseEther("0"),
                     chainId: transactionData.chain_id,
                 };
-            } else {
-                tx = {
-                    to: transactionData.to,
-                    data: transactionData.data || "0x",
-                    value: ethers.parseEther(transactionData.value || "0"),
-                    chainId: transactionData.chain_id,
-                };
-            }
-        }
-        
-        console.log('🚀 Sending transaction to MetaMask...');
-        addSystemMessage('⏳ Opening MetaMask... Please sign the transaction.');
-        
-        // Add a delay to ensure user sees the message
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        console.log('📤 Transaction payload:', {
-            to: tx.to,
-            value: tx.value.toString(),
-            chainId: tx.chainId,
-            dataLength: tx.data?.length || 0
-        });
-        
-        // Estimate gas first
-        try {
-            console.log('⛽ Estimating gas...');
-            const gasEstimate = await provider.estimateGas(tx);
-            console.log('✅ Gas estimate:', gasEstimate.toString());
-            
-            const gasWithBuffer = (gasEstimate * 120n) / 100n;
-            tx.gasLimit = 8000000n; // 8 million gas for token creation
-            console.log('✅ Gas with buffer:', gasWithBuffer.toString());
-            
-        } catch (gasError) {
-            console.warn('⚠️ Gas estimation failed:', gasError.message);
-            console.log('⚠️ Using default gas limit');
-            // Use a safe default for contract calls
-             tx.gasLimit = 8000000n; // 8 million gas for token creation
-        }
-        
-        // Get gas price
-        try {
-            const feeData = await provider.getFeeData();
-            console.log('💰 Fee data:', {
-                gasPrice: feeData.gasPrice?.toString(),
-                maxFeePerGas: feeData.maxFeePerGas?.toString(),
-                maxPriorityFeePerGas: feeData.maxPriorityFeePerGas?.toString()
-            });
-            
-            if (feeData.gasPrice) {
-                tx.gasPrice = feeData.gasPrice;
-            } else if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
-                tx.maxFeePerGas = feeData.maxFeePerGas;
-                tx.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
             }
             
-        } catch (feeError) {
-            console.warn('⚠️ Fee data fetch failed:', feeError.message);
-        }
-        
-        // Send the transaction
-        const txResponse = await signer.sendTransaction(tx);
-        
-        console.log('✅ Transaction sent! Hash:', txResponse.hash);
-        console.log('✅ Transaction details:', {
-            hash: txResponse.hash,
-            to: txResponse.to,
-            from: txResponse.from,
-            chainId: txResponse.chainId
-        });
-        
-        addSystemMessage(`✅ Transaction sent! Hash: ${txResponse.hash}\n⏳ Waiting for confirmation...`);
-        
-        // Wait for confirmation
-        console.log('⏳ Waiting for transaction confirmation...');
-        const receipt = await txResponse.wait();
-        
-        console.log('✅ Transaction confirmed!');
-        console.log('✅ Receipt details:', {
-            hash: receipt.hash,
-            status: receipt.status,
-            blockNumber: receipt.blockNumber,
-            gasUsed: receipt.gasUsed?.toString(),
-            cumulativeGasUsed: receipt.cumulativeGasUsed?.toString()
-        });
-        
-        if (receipt && receipt.hash) {
-            if (receipt.status === 1) {
-                addSystemMessage(`🎉 Transaction confirmed! Hash: ${receipt.hash}`);
-                console.log('🎉 Transaction successful!');
-            } else {
-                addSystemMessage(`⚠️ Transaction failed! Hash: ${receipt.hash} (Status: ${receipt.status})`);
-                console.log('❌ Transaction failed with status:', receipt.status);
-                throw new Error(`Transaction failed with status ${receipt.status}`);
+            addSystemMessage('⏳ Opening MetaMask... Please sign the transaction.');
+            
+            // Wait a moment for user to see the message
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Estimate gas
+            try {
+                const gasEstimate = await provider.estimateGas(tx);
+                tx.gasLimit = gasEstimate * 120n / 100n;
+            } catch (gasError) {
+                console.warn('Gas estimation failed:', gasError.message);
+                tx.gasLimit = 8000000n;
+            }
+            
+            // Get fee data
+            try {
+                const feeData = await provider.getFeeData();
+                if (feeData.gasPrice) {
+                    tx.gasPrice = feeData.gasPrice;
+                } else if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+                    tx.maxFeePerGas = feeData.maxFeePerGas;
+                    tx.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
+                }
+            } catch (feeError) {
+                console.warn('Fee data fetch failed:', feeError.message);
+            }
+            
+            // Send transaction
+            const txResponse = await signer.sendTransaction(tx);
+            addSystemMessage(`✅ Transaction sent! Hash: ${txResponse.hash}\n⏳ Waiting for confirmation...`);
+            
+            const receipt = await txResponse.wait();
+            
+            if (receipt && receipt.hash) {
+                if (receipt.status === 1) {
+                    addSystemMessage(`🎉 Transaction confirmed! Hash: ${receipt.hash}`);
+                } else {
+                    addSystemMessage(`⚠️ Transaction failed! Hash: ${receipt.hash} (Status: ${receipt.status})`);
+                    throw new Error(`Transaction failed with status ${receipt.status}`);
+                }
+                
+                isSigningTransaction = false;
+                clearPendingTransaction();
+                return receipt.hash;
             }
             
             isSigningTransaction = false;
-            clearPendingTransaction(); // 🚨 ADD THIS LINE
-            return receipt.hash;
-        }
-        
-        isSigningTransaction = false;
-        return null;
-        
-     } catch (error: any) {
-        console.error('❌ Transaction error:', error);
-        console.error('❌ Error details:', {
-            code: error.code,
-            message: error.message,
-            data: error.data,
-            stack: error.stack
-        });
-        
-        isSigningTransaction = false;
-        clearPendingTransaction(); // 🚨 ADD THIS LINE
-
-        pendingTransaction = null; 
-
-        
-        // Provide user-friendly error messages
-        if (error.code === 4001) {
-            addAssistantMessage('❌ Transaction rejected by user in MetaMask.');
-        } else if (error.code === 'INSUFFICIENT_FUNDS') {
-            addAssistantMessage('❌ Insufficient funds for gas fee.');
-        } else if (error.code === 'UNSUPPORTED_OPERATION') {
-            addAssistantMessage('❌ Unsupported operation. Please check your wallet.');
-        } else if (error.message.includes('user rejected')) {
-            addAssistantMessage('❌ You rejected the transaction in MetaMask.');
-        } else if (error.message.includes('execution reverted')) {
-            addAssistantMessage('❌ Contract execution reverted. This could be due to:');
-            addAssistantMessage('   - Invalid parameters');
-            addAssistantMessage('   - Contract requirements not met');
-            addAssistantMessage('   - Insufficient permissions');
-            console.error('❌ Revert reason (if available):', error.data);
-        } else if (error.message.includes('network')) {
-            addAssistantMessage('❌ Network error. Please check your connection.');
-        } else if (error.message.includes('chain')) {
-            addAssistantMessage('❌ Wrong network. Please switch to BSC Testnet (Chain ID: 97).');
-        } else {
-            addAssistantMessage(`❌ Transaction failed: ${error.message}`);
-        }
-        
-        return null;
-        }
-    }
-    async function testContractCall() {
-     if (!window.ethereum || !walletConnected) {
-        addAssistantMessage('❌ Please connect your wallet first.');
-        return;
-     }
-    
-     try {
-        const provider = new BrowserProvider(window.ethereum);
-        const signer = await provider.getSigner();
-        
-        // Try to call a simple view function first
-        const contractInterface = new ethers.Interface([
-            'function getProjectStatistics() external view returns (uint256, uint256, uint256, uint256, uint256)'
-        ]);
-        
-        const contractAddress = "0x533dd86Fb1eC823e595C74dE548d59E20070ED83";
-        
-        // Create a call (not a transaction) to test
-        const callData = contractInterface.encodeFunctionData('getProjectStatistics', []);
-        
-        console.log('🧪 Testing contract call...');
-        console.log('   Contract:', contractAddress);
-        console.log('   Call data:', callData);
-        
-        // Use call instead of sendTransaction for view functions
-        const result = await provider.call({
-            to: contractAddress,
-            data: callData
-        });
-        
-        console.log('✅ Contract call successful! Result:', result);
-        addSystemMessage(`✅ Contract test call successful!`);
-        
-        } catch (error) {
-        console.error('❌ Contract test failed:', error);
-        addAssistantMessage(`❌ Contract test failed: ${error.message}`);
-        }
-    }
-    function clearPendingTransaction() {
-     pendingTransaction = null;
-     window.lastBackendData = null;
-     console.log('🧹 Cleared pending transaction and backend data');
-    }
-    
-    // Helper to get network name
-    function getNetworkName(chainId: number): string {
-        switch (chainId) {
-            case 1: return 'Ethereum Mainnet';
-            case 5: return 'Goerli Testnet';
-            case 97: return 'BSC Testnet';
-            case 56: return 'BSC Mainnet';
-            case 137: return 'Polygon Mainnet';
-            case 80001: return 'Polygon Mumbai Testnet';
-            default: return `Chain ${chainId}`;
-        }
-    }
-    
-    // Shorten address for display
-    function shortenAddress(address: string): string {
-        if (!address) return '';
-        return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
-    }
-    
-    // Format balance for display
-    function formatBalance(balance: string): string {
-        const num = parseFloat(balance);
-        if (isNaN(num)) return '0.000000';
-        return num.toFixed(6);
-    }
-
-    async function handleSubmit() {
-     if (!input.trim() || isProcessing) return;
-    
-     const userInput = input;
-     addUserMessage(userInput);
-     input = '';
-     isProcessing = true;
-    
-     console.log('🔄 handleSubmit called with:', userInput);
-    
-     if (!backendConnected) {
-        console.log('❌ Backend not connected');
-        addAssistantMessage('❌ Backend not connected.');
-        isProcessing = false;
-        return;
-     }
-    
-     if (!agentInitialized) {
-        console.log('❌ Agent not initialized');
-        addAssistantMessage('🤖 AI Agent not initialized.');
-        isProcessing = false;
-        return;
-     }
-    
-     if (!walletConnected) {
-        console.log('❌ Wallet not connected');
-        addAssistantMessage('🔐 Please connect your wallet first!');
-        isProcessing = false;
-        return;
-     }
-    
-     try {
-        console.log('📤 Sending request to backend...');
-        const response = await fetch('http://localhost:3001/api/intents/signed', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify({ 
-                user_input: userInput,
-                address: walletAddress,
-                chain_id: chainId,
-                signature: 'demo-signature-placeholder'
-            })
-        });
-        
-        console.log('✅ Backend response status:', response.status);
-        
-        if (response.ok) {
-            const data = await response.json();
-            console.log('📦 Full backend response:', JSON.stringify(data, null, 2));
+            return null;
             
-            // Debug the structure
-            console.log('🔍 Response structure analysis:');
-            console.log('   data object keys:', Object.keys(data));
-            console.log('   data.data exists:', !!data.data);
-            console.log('   data.data type:', typeof data.data);
+        } catch (error: any) {
+            console.error('Transaction error:', error);
             
-            if (data.data) {
-                console.log('   data.data keys:', Object.keys(data.data));
-                console.log('   data.data.transaction_data exists:', !!data.data.transaction_data);
-                console.log('   data.transaction_data exists:', !!data.transaction_data);
-                
-                if (data.data.transaction_data) {
-                    console.log('   ✅ Found transaction_data in data.data:', data.data.transaction_data);
-                }
-            }
+            isSigningTransaction = false;
+            clearPendingTransaction();
             
-            addAssistantMessage(data.ai_message);
-            
-            // Check for transaction data
-            if (data.data && data.data.transaction_data) {
-                pendingTransaction = data.data.transaction_data;
-                console.log('📝 Pending transaction set:', pendingTransaction);
-                
-                if (!pendingTransaction.chain_id) {
-                    console.log('⚠️ Chain ID missing, using wallet chain ID:', chainId);
-                    pendingTransaction.chain_id = chainId;
-                }
-                
-                // Store backend data
-                window.lastBackendData = data.data;
-                console.log('💾 Stored backend data:', window.lastBackendData);
-                
-                // Auto-sign after delay
-                console.log('⏰ Setting up auto-sign timeout (1000ms)...');
-                setTimeout(() => {
-                    console.log('🏃‍♂️ Auto-sign timeout triggered!');
-                    console.log('📊 Calling signTransaction with:', pendingTransaction);
-                    
-                    signTransaction(pendingTransaction, data.data)
-                        .then(txHash => {
-                            console.log('✅ signTransaction completed, hash:', txHash);
-                            if (txHash) {
-                                handleTransactionSuccess(txHash, data.data);
-                            }
-                        })
-                        .catch(error => {
-                            console.error('❌ signTransaction failed:', error);
-                            addAssistantMessage(`❌ Auto-sign failed: ${error.message}`);
-                        });
-                }, 1000);
-                
+            // User-friendly error messages
+            if (error.code === 4001) {
+                addAssistantMessage('❌ Transaction rejected by user in MetaMask.');
+            } else if (error.code === 'INSUFFICIENT_FUNDS') {
+                addAssistantMessage('❌ Insufficient funds for gas fee.');
+            } else if (error.message.includes('user rejected')) {
+                addAssistantMessage('❌ You rejected the transaction in MetaMask.');
+            } else if (error.message.includes('execution reverted')) {
+                addAssistantMessage('❌ Contract execution reverted. This could be due to invalid parameters or contract requirements.');
+            } else if (error.message.includes('network')) {
+                addAssistantMessage('❌ Network error. Please check your connection.');
+            } else if (error.message.includes('chain')) {
+                addAssistantMessage('❌ Wrong network. Please switch to BSC Testnet (Chain ID: 97).');
             } else {
-                console.log('📊 No transaction data found in response');
-                if (data.data) {
-                    const cleanData = { ...data.data };
-                    delete cleanData.user_id;
-                    delete cleanData.internal_id;
-                    
-                    if (Object.keys(cleanData).length > 0) {
-                        addAssistantMessage(`📊 **Details:**\n\n\`\`\`json\n${JSON.stringify(cleanData, null, 2)}\n\`\`\``);
-                    }
-                }
+                addAssistantMessage(`❌ Transaction failed: ${error.message}`);
             }
-        } else {
-            const errorText = await response.text();
-            console.error('❌ Backend error:', response.status, errorText);
-            addAssistantMessage(`❌ **Request Failed**\n\n${errorText}`);
+            
+            return null;
         }
-     } catch (error: any) {
-        console.error('❌ Network error:', error);
-        addAssistantMessage(`❌ **Network Error**\n\n${error.message}`);
-     } finally {
-        console.log('🏁 handleSubmit completed');
-        isProcessing = false;
-     }
+    }
+
+    async function testContractCall() {
+        if (!window.ethereum || !walletConnected) {
+            addAssistantMessage('❌ Please connect your wallet first.');
+            return;
+        }
+        
+        try {
+            const provider = new BrowserProvider(window.ethereum);
+            const contractInterface = new ethers.Interface([
+                'function getProjectStatistics() external view returns (uint256, uint256, uint256, uint256, uint256)'
+            ]);
+            
+            const contractAddress = "0xE7392b8ee167980602d38225674bB377De5Fe287";
+            const callData = contractInterface.encodeFunctionData('getProjectStatistics', []);
+            
+            const result = await provider.call({
+                to: contractAddress,
+                data: callData
+            });
+            
+            addSystemMessage(`✅ Contract test call successful!`);
+        } catch (error) {
+            console.error('Contract test failed:', error);
+            addAssistantMessage(`❌ Contract test failed: ${error.message}`);
+        }
+    }
+
+    // ============ MAIN HANDLERS ============
+    async function handleSubmit() {
+        if (!input.trim() || isProcessing) return;
+        
+        const userInput = input;
+        addUserMessage(userInput);
+        input = '';
+        isProcessing = true;
+        
+        const thinkingId = addThinkingIndicator();
+        
+        if (!backendConnected) {
+            replaceThinkingWithResponse(thinkingId, '❌ Backend not connected.');
+            isProcessing = false;
+            return;
+        }
+        
+        if (!agentInitialized) {
+            replaceThinkingWithResponse(thinkingId, '🤖 AI Agent not initialized.');
+            isProcessing = false;
+            return;
+        }
+        
+        if (!walletConnected) {
+            replaceThinkingWithResponse(thinkingId, '🔐 Please connect your wallet first!');
+            isProcessing = false;
+            return;
+        }
+        
+        try {
+            const response = await fetch('http://localhost:3001/api/intents/signed', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    user_input: userInput,
+                    address: walletAddress,
+                    chain_id: chainId,
+                    signature: 'demo-signature-placeholder'
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                
+                // Replace thinking with AI response
+                replaceThinkingWithResponse(thinkingId, data.ai_message);
+                
+                if (data.data && data.data.transaction_data) {
+                    pendingTransaction = data.data.transaction_data;
+                    window.lastBackendData = data.data;
+                    
+                    if (!pendingTransaction.chain_id) {
+                        pendingTransaction.chain_id = chainId;
+                    }
+                    
+                    // Wait for typing to complete before auto-signing
+                    const checkTypingInterval = setInterval(() => {
+                        if (isTypingComplete) {
+                            clearInterval(checkTypingInterval);
+                            // Add a small delay after typing finishes
+                            setTimeout(() => {
+                                addSystemMessage('⏳ Ready to sign transaction...');
+                                // Wait another moment before triggering
+                                setTimeout(() => {
+                                    signTransaction(pendingTransaction, data.data)
+                                        .then(txHash => {
+                                            if (txHash) {
+                                                handleTransactionSuccess(txHash, data.data);
+                                            }
+                                        })
+                                        .catch(error => {
+                                            addAssistantMessage(`❌ Auto-sign failed: ${error.message}`);
+                                        });
+                                }, 1500);
+                            }, 500);
+                        }
+                    }, 100);
+                }
+            } else {
+                const errorText = await response.text();
+                replaceThinkingWithResponse(thinkingId, `❌ Request Failed\n\n${errorText}`);
+            }
+        } catch (error: any) {
+            replaceThinkingWithResponse(thinkingId, `❌ Network Error\n\n${error.message}`);
+        } finally {
+            isProcessing = false;
+        }
     }
     
     function handleTransactionSuccess(txHash: string, originalData: any) {
-        addAssistantMessage(`🎉 **Transaction Successful!**\n\nTransaction Hash: \`${txHash}\``);
-        
-        // Update the response with transaction hash
-        if (originalData) {
-            const updatedData = { 
-                ...originalData, 
-                transaction_hash: txHash,
-                status: 'completed',
-                explorer_url: getExplorerUrl(txHash, chainId)
-            };
-            addAssistantMessage(`📊 **Transaction Details:**\n\n\`\`\`json\n${JSON.stringify(updatedData, null, 2)}\n\`\`\``);
-            
-            // Add a link to view the transaction
-            addSystemMessage(`🔗 View on explorer: ${getExplorerUrl(txHash, chainId)}`);
-        }
-        
-     clearPendingTransaction(); // 🚨 ADD THIS
+        addAssistantMessage(`🎉 Transaction Successful!\n\nTransaction Hash: \`${txHash}\``);
+        addSystemMessage(`🔗 View on explorer: ${getExplorerUrl(txHash, chainId)}`);
+        clearPendingTransaction();
     }
     
+    // ============ HELPER FUNCTIONS ============
     function getExplorerUrl(txHash: string, chainId: number): string {
         switch (chainId) {
             case 1: return `https://etherscan.io/tx/${txHash}`;
@@ -820,6 +758,29 @@
         }
     }
     
+    function shortenAddress(address: string): string {
+        if (!address) return '';
+        return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+    }
+    
+    function formatBalance(balance: string): string {
+        const num = parseFloat(balance);
+        if (isNaN(num)) return '0.000000';
+        return num.toFixed(6);
+    }
+    
+    function getNetworkName(chainId: number): string {
+        switch (chainId) {
+            case 1: return 'Ethereum Mainnet';
+            case 5: return 'Goerli Testnet';
+            case 97: return 'BSC Testnet';
+            case 56: return 'BSC Mainnet';
+            case 137: return 'Polygon Mainnet';
+            case 80001: return 'Polygon Mumbai Testnet';
+            default: return `Chain ${chainId}`;
+        }
+    }
+    
     async function testBackend() {
         isProcessing = true;
         addUserMessage('Test backend connection');
@@ -836,147 +797,87 @@
             
             if (response.ok) {
                 const data = await response.json();
-                addAssistantMessage(`✅ **Backend Response**\n\n${data.message}`);
+                addAssistantMessage(`✅ Backend Response\n\n${data.message}`);
                 backendConnected = true;
             } else {
                 const errorText = await response.text();
-                addAssistantMessage(`❌ **Backend Error**\n\nStatus: ${response.status}\nError: ${errorText}`);
+                addAssistantMessage(`❌ Backend Error\n\nStatus: ${response.status}\nError: ${errorText}`);
             }
         } catch (error: any) {
-            addAssistantMessage(`❌ **Network Error**\n\n${error.message}`);
+            addAssistantMessage(`❌ Network Error\n\n${error.message}`);
             backendConnected = false;
         } finally {
             isProcessing = false;
         }
     }
+    
     async function testSimpleTransaction() {
-     if (!window.ethereum || !walletConnected) {
-        addAssistantMessage('❌ Please connect your wallet first.');
-        return;
-     }
-    
-     console.log('🔧 Testing simple transaction...');
-     addSystemMessage('🔧 Testing simple transaction to MetaMask...');
-    
-     try {
-        const provider = new BrowserProvider(window.ethereum);
-        const signer = await provider.getSigner();
-        
-        // Very simple transaction - send 0 ETH to yourself
-        const tx = {
-            to: walletAddress,
-            value: ethers.parseEther("0"),
-            chainId: chainId,
-        };
-        
-        console.log('Sending test transaction:', tx);
-        
-        const txResponse = await signer.sendTransaction(tx);
-        console.log('Test transaction sent! Hash:', txResponse.hash);
-        
-        const receipt = await txResponse.wait();
-        console.log('Test transaction confirmed! Hash:', receipt.hash);
-        
-        addSystemMessage(`✅ MetaMask test successful! Transaction hash: ${receipt.hash}`);
-        
-     } catch (error: any) {
-        console.error('Test transaction error:', error);
-        console.error('Error code:', error.code);
-        console.error('Error message:', error.message);
-        
-        if (error.code === 4001) {
-            addAssistantMessage('❌ Test transaction rejected by user in MetaMask.');
-         } else if (error.code === 'INSUFFICIENT_FUNDS') {
-            addAssistantMessage('❌ Insufficient funds for gas fee.');
-         } else {
-            addAssistantMessage(`❌ Test failed: ${error.message}`);
-         }
+        if (!window.ethereum || !walletConnected) {
+            addAssistantMessage('❌ Please connect your wallet first.');
+            return;
         }
-    }
-    async function manualTriggerSign() {
-     console.log('🔄 Manual trigger sign called');
-    
-     if (!pendingTransaction) {
-        console.log('❌ No pending transaction');
-        addAssistantMessage('❌ No pending transaction to sign.');
-        return;
-     }
-    
-        if (!window.lastBackendData) {
-        console.log('❌ No backend data available');
-        addAssistantMessage('❌ No transaction data available. Please try creating the project again.');
-         return;
-        }
-    
-     console.log('📊 Manual trigger - pendingTransaction:', pendingTransaction);
-      console.log('📊 Manual trigger - lastBackendData:', window.lastBackendData);
-    
+        
         try {
-        const txHash = await signTransaction(pendingTransaction, window.lastBackendData);
-        if (txHash) {
-            handleTransactionSuccess(txHash, window.lastBackendData);
-        }
-        } catch (error) {
-        console.error('❌ Manual trigger failed:', error);
-        addAssistantMessage(`❌ Manual trigger failed: ${error.message}`);
+            const provider = new BrowserProvider(window.ethereum);
+            const signer = await provider.getSigner();
+            
+            const tx = {
+                to: walletAddress,
+                value: ethers.parseEther("0"),
+                chainId: chainId,
+            };
+            
+            const txResponse = await signer.sendTransaction(tx);
+            const receipt = await txResponse.wait();
+            
+            addSystemMessage(`✅ MetaMask test successful! Transaction hash: ${receipt.hash}`);
+        } catch (error: any) {
+            if (error.code === 4001) {
+                addAssistantMessage('❌ Test transaction rejected by user in MetaMask.');
+            } else if (error.code === 'INSUFFICIENT_FUNDS') {
+                addAssistantMessage('❌ Insufficient funds for gas fee.');
+            } else {
+                addAssistantMessage(`❌ Test failed: ${error.message}`);
+            }
         }
     }
     
-    // Test with pre-defined intents
+    async function manualTriggerSign() {
+        if (!pendingTransaction) {
+            addAssistantMessage('❌ No pending transaction to sign.');
+            return;
+        }
+        
+        if (!window.lastBackendData) {
+            addAssistantMessage('❌ No transaction data available. Please try again.');
+            return;
+        }
+        
+        try {
+            const txHash = await signTransaction(pendingTransaction, window.lastBackendData);
+            if (txHash) {
+                handleTransactionSuccess(txHash, window.lastBackendData);
+            }
+        } catch (error) {
+            addAssistantMessage(`❌ Manual trigger failed: ${error.message}`);
+        }
+    }
+    
     function testIntent(type: string) {
         let testMessage = '';
         
         switch(type) {
-            case 'create':
-                testMessage = 'Create a new project called CryptoToken with symbol CTK';
-                break;
-            case 'invest':
-                testMessage = 'Invest 0.5 ETH in project 0x1234567890abcdef';
-                break;
-            case 'info':
-                testMessage = 'Show me project details';
-                break;
-            case 'list':
-                testMessage = 'List all available projects';
-                break;
-            case 'balance':
-                testMessage = 'What is my current balance?';
-                break;
+            case 'create': testMessage = 'Create a new project called CryptoToken with symbol CTK'; break;
+            case 'invest': testMessage = 'Invest 0.5 ETH in project 0x1234567890abcdef'; break;
+            case 'info': testMessage = 'Show me project details'; break;
+            case 'list': testMessage = 'List all available projects'; break;
+            case 'balance': testMessage = 'What is my current balance?'; break;
         }
         
         if (testMessage) {
             input = testMessage;
-            // Auto-submit after a brief delay
             setTimeout(() => handleSubmit(), 100);
         }
-    }
-    
-    // Helper functions
-    function addUserMessage(content: string) {
-        messages = [...messages, {
-            id: messages.length + 1,
-            role: 'user' as const,
-            content,
-            timestamp: new Date()
-        }];
-    }
-    
-    function addAssistantMessage(content: string) {
-        messages = [...messages, {
-            id: messages.length + 1,
-            role: 'assistant' as const,
-            content,
-            timestamp: new Date()
-        }];
-    }
-    
-    function addSystemMessage(content: string) {
-        messages = [...messages, {
-            id: messages.length + 1,
-            role: 'assistant' as const,
-            content: `⚙️ ${content}`,
-            timestamp: new Date()
-        }];
     }
 </script>
 
@@ -1002,9 +903,7 @@
             <div class="p-3 rounded-lg {agentInitialized ? 'bg-purple-900/30 border border-purple-700' : 'bg-gray-700 border border-gray-600'}">
                 <div class="flex items-center gap-2 mb-2">
                     <div class="w-2 h-2 rounded-full {agentInitialized ? 'bg-purple-500' : 'bg-gray-500'}"></div>
-                    <span class="text-sm font-medium">
-                        {agentInitialized ? '🤖 Agent Ready' : '⚙️ AI Agent'}
-                    </span>
+                    <span class="text-sm font-medium">{agentInitialized ? '🤖 Agent Ready' : '⚙️ AI Agent'}</span>
                 </div>
                 
                 <button 
@@ -1031,13 +930,11 @@
                 </button>
             </div>
             
-            <!-- Wallet Connection Status -->
+            <!-- Wallet Connection -->
             <div class="p-3 rounded-lg {walletConnected ? 'bg-green-900/30 border border-green-700' : 'bg-red-900/30 border border-red-700'}">
                 <div class="flex items-center gap-2 mb-2">
                     <div class="w-2 h-2 rounded-full {walletConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}"></div>
-                    <span class="text-sm font-medium">
-                        {walletConnected ? '✅ Wallet Connected' : '❌ No Wallet'}
-                    </span>
+                    <span class="text-sm font-medium">{walletConnected ? '✅ Wallet Connected' : '❌ No Wallet'}</span>
                 </div>
                 
                 {#if walletConnected}
@@ -1051,7 +948,6 @@
                             <span class="text-sm">{formatBalance(walletBalance)} ETH</span>
                         </div>
                         <div class="text-xs text-gray-400 mt-1">Chain ID: {chainId}</div>
-                        <div class="text-xs text-gray-400">Type: {walletType}</div>
                     </div>
                     
                     <button
@@ -1062,30 +958,19 @@
                         <span>Disconnect</span>
                     </button>
                 {:else}
-                    <div class="space-y-2">
-                        <button
-                            on:click={connectMetaMask}
-                            disabled={isConnectingWallet}
-                            class="w-full px-3 py-2 text-sm bg-orange-600 hover:bg-orange-700 rounded disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-                        >
-                            {#if isConnectingWallet}
-                                <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                <span>Connecting...</span>
-                            {:else}
-                                <Wallet size={14} />
-                                <span>Connect MetaMask</span>
-                            {/if}
-                        </button>
-                        
-                        <button
-                            on:click={connectWalletConnect}
-                            disabled={isConnectingWallet}
-                            class="w-full px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-                        >
+                    <button
+                        on:click={connectMetaMask}
+                        disabled={isConnectingWallet}
+                        class="w-full px-3 py-2 text-sm bg-orange-600 hover:bg-orange-700 rounded disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                    >
+                        {#if isConnectingWallet}
+                            <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            <span>Connecting...</span>
+                        {:else}
                             <Wallet size={14} />
-                            <span>WalletConnect</span>
-                        </button>
-                    </div>
+                            <span>Connect MetaMask</span>
+                        {/if}
+                    </button>
                 {/if}
             </div>
             
@@ -1119,63 +1004,37 @@
             
             <!-- Transaction Actions -->
             <div>
-                <h3 class="text-sm font-medium text-gray-400 mb-2">Transaction Actions</h3>
+                <h3 class="text-sm font-medium text-gray-400 mb-2">Quick Actions</h3>
                 <div class="space-y-2">
-                    <button
-                        on:click={() => testIntent('create')}
-                        disabled={isProcessing || !walletConnected || !agentInitialized}
-                        class="w-full text-left px-3 py-2 text-sm bg-blue-900/30 hover:bg-blue-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2"
-                    >
+                    <button on:click={() => testIntent('create')} disabled={isProcessing || !walletConnected || !agentInitialized}
+                        class="w-full text-left px-3 py-2 text-sm bg-blue-900/30 hover:bg-blue-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2">
                         <div class="w-4 h-4">🏗️</div>
                         <span>Create Project</span>
                     </button>
-                    <button
-                        on:click={() => testIntent('invest')}
-                        disabled={isProcessing || !walletConnected || !agentInitialized}
-                        class="w-full text-left px-3 py-2 text-sm bg-green-900/30 hover:bg-green-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2"
-                    >
+                    <button on:click={() => testIntent('invest')} disabled={isProcessing || !walletConnected || !agentInitialized}
+                        class="w-full text-left px-3 py-2 text-sm bg-green-900/30 hover:bg-green-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2">
                         <div class="w-4 h-4">💰</div>
                         <span>Invest</span>
                     </button>
-                    <button
-                        on:click={() => testIntent('info')}
-                        disabled={isProcessing || !agentInitialized}
-                        class="w-full text-left px-3 py-2 text-sm bg-purple-900/30 hover:bg-purple-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2"
-                    >
+                    <button on:click={() => testIntent('info')} disabled={isProcessing || !agentInitialized}
+                        class="w-full text-left px-3 py-2 text-sm bg-purple-900/30 hover:bg-purple-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2">
                         <div class="w-4 h-4">📊</div>
                         <span>Project Info</span>
                     </button>
-                    <button
-                        on:click={() => testIntent('balance')}
-                        disabled={!walletConnected}
-                        class="w-full text-left px-3 py-2 text-sm bg-yellow-900/30 hover:bg-yellow-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2"
-                    >
-                        <Coins size={14} />
-                        <span>Check Balance</span>
+                    <button on:click={testSimpleTransaction} disabled={!walletConnected}
+                        class="w-full text-left px-3 py-2 text-sm bg-red-900/30 hover:bg-red-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2">
+                        <div class="w-4 h-4">🐛</div>
+                        <span>Debug: Test Simple TX</span>
                     </button>
-                    <button
-                      on:click={testSimpleTransaction}
-                     disabled={!walletConnected}
-                    class="w-full text-left px-3 py-2 text-sm bg-red-900/30 hover:bg-red-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2"
-                    >
-                    <div class="w-4 h-4">🐛</div>
-                     <span>Debug: Test Simple TX</span>
+                    <button on:click={manualTriggerSign} disabled={!pendingTransaction}
+                        class="w-full text-left px-3 py-2 text-sm bg-orange-900/30 hover:bg-orange-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2">
+                        <div class="w-4 h-4">🔄</div>
+                        <span>Manual Trigger Sign</span>
                     </button>
-                    <button
-                     on:click={manualTriggerSign}
-                     disabled={!pendingTransaction}
-                     class="w-full text-left px-3 py-2 text-sm bg-orange-900/30 hover:bg-orange-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2"
-                    >
-                    <div class="w-4 h-4">🔄</div>
-                    <span>Manual Trigger Sign</span>
-                    </button>
-                    <button
-                     on:click={testContractCall}
-                     disabled={!walletConnected}
-                       class="w-full text-left px-3 py-2 text-sm bg-blue-900/30 hover:bg-blue-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2"
-                    >
-                    <div class="w-4 h-4">🧪</div>
-                <span>Test Contract Call</span>
+                    <button on:click={testContractCall} disabled={!walletConnected}
+                        class="w-full text-left px-3 py-2 text-sm bg-blue-900/30 hover:bg-blue-900/50 rounded disabled:opacity-50 transition-colors flex items-center gap-2">
+                        <div class="w-4 h-4">🧪</div>
+                        <span>Test Contract Call</span>
                     </button>
                 </div>
             </div>
@@ -1253,16 +1112,30 @@
         >
             {#each messages as message}
                 <div class="flex {message.role === 'user' ? 'justify-end' : ''}">
-                    <div class="max-w-2xl rounded-xl p-4 {message.role === 'user' ? 'bg-blue-600/20 border border-blue-500/30' : 'bg-gray-800/50 border border-gray-700'}">
+                    <div class="max-w-2xl rounded-xl p-4 {message.role === 'user' ? 'bg-blue-600/20 border border-blue-500/30' : 'bg-gray-800/50 border border-gray-700'} {message.isTyping ? 'border-purple-500/50' : ''}">
                         <div class="flex items-center gap-2 mb-2">
                             {#if message.role === 'assistant'}
                                 <Bot size={16} class="text-blue-400" />
                                 <span class="font-medium">Teemah AI</span>
+                                {#if message.isTyping}
+                                    <div class="flex items-center gap-1 ml-2">
+                                        <div class="w-1 h-1 bg-purple-500 rounded-full animate-pulse"></div>
+                                        <div class="w-1 h-1 bg-purple-500 rounded-full animate-pulse" style="animation-delay: 0.2s"></div>
+                                        <div class="w-1 h-1 bg-purple-500 rounded-full animate-pulse" style="animation-delay: 0.4s"></div>
+                                    </div>
+                                {/if}
                             {:else}
                                 <span class="font-medium text-blue-300">You</span>
                             {/if}
                         </div>
-                        <div class="whitespace-pre-line">{@html message.content.replace(/\n/g, '<br>').replace(/`([^`]+)`/g, '<code class="bg-gray-700 px-1 py-0.5 rounded">$1</code>')}</div>
+                        
+                        <!-- Show typing cursor for incomplete messages -->
+                        <div class="whitespace-pre-wrap min-h-[1em] text-base">
+                            {@html formatMessageContent(message.content)}
+                            {#if message.isTyping && !message.isComplete}
+                                <span class="inline-block w-2 h-5 ml-1 bg-purple-500 animate-pulse align-middle"></span>
+                            {/if}
+                        </div>
                     </div>
                 </div>
             {/each}
@@ -1301,7 +1174,7 @@
                         bind:value={input}
                         rows="2"
                         placeholder="{!backendConnected ? 'Backend not connected' : !agentInitialized ? 'Initialize AI Agent first' : !walletConnected ? 'Connect your wallet to start transacting' : pendingTransaction ? 'Transaction ready to sign! Click "Sign Transaction" button' : 'What transaction would you like to make? (e.g., "Create a new project" or "Invest 0.1 ETH")'}"
-                        class="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:opacity-50"
+                        class="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:opacity-50 text-base"
                         on:keydown={handleKeyDown}
                         disabled={!backendConnected || !agentInitialized || !walletConnected || pendingTransaction}
                     />
@@ -1426,5 +1299,36 @@
     code {
         font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
         font-size: 0.9em;
+    }
+    
+    /* Custom typing animation */
+    @keyframes typing-cursor {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+    }
+
+    .typing-cursor {
+        animation: typing-cursor 1s infinite;
+    }
+
+    /* Smooth scroll behavior */
+    .chat-container {
+        scroll-behavior: smooth;
+    }
+
+    /* Message fade-in */
+    .message-enter {
+        animation: messageEnter 0.3s ease-out;
+    }
+
+    @keyframes messageEnter {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
 </style>
