@@ -41,7 +41,6 @@
     let isTestingConnection = false;
     let typingMessageId: number | null = null;
     let typingTimeout: any = null;
-    let isTypingComplete = false;
     
     // Wallet state
     let walletConnected = false;
@@ -79,7 +78,6 @@
     // ============ TYPING EFFECT FUNCTIONS ============
     function startTypingEffect(messageId: number) {
         typingMessageId = messageId;
-        isTypingComplete = false;
         const messageIndex = messages.findIndex(m => m.id === messageId);
         if (messageIndex !== -1) {
             messages[messageIndex].isTyping = true;
@@ -90,7 +88,6 @@
 
     function stopTypingEffect(messageId: number) {
         typingMessageId = null;
-        isTypingComplete = true;
         const messageIndex = messages.findIndex(m => m.id === messageId);
         if (messageIndex !== -1) {
             messages[messageIndex].isTyping = false;
@@ -112,6 +109,8 @@
     function typeMessageCharacter(messageId: number, fullContent: string, currentIndex: number) {
         if (currentIndex >= fullContent.length) {
             stopTypingEffect(messageId);
+            // Trigger any pending action after this message finishes typing
+            triggerPendingActionIfNeeded(messageId);
             return;
         }
         
@@ -180,7 +179,7 @@
         }];
     }
 
-    function addAssistantMessage(content: string) {
+    function addAssistantMessage(content: string, onComplete?: () => void) {
         const newId = messages.length + 1;
         messages = [...messages, {
             id: newId,
@@ -191,6 +190,18 @@
             isComplete: false,
             isThinking: false
         }];
+        
+        // Store the onComplete callback with the message
+        const messageIndex = messages.findIndex(m => m.id === newId);
+        if (messageIndex !== -1 && onComplete) {
+            // We'll use a setTimeout to check when typing is done
+            const checkCompletion = setInterval(() => {
+                if (messages[messageIndex].isComplete) {
+                    clearInterval(checkCompletion);
+                    onComplete();
+                }
+            }, 100);
+        }
         
         // Start typing effect
         setTimeout(() => {
@@ -227,12 +238,12 @@
         return thinkingId;
     }
 
-    function replaceThinkingWithResponse(thinkingId: number, response: string) {
+    function replaceThinkingWithResponse(thinkingId: number, response: string, onComplete?: () => void) {
         const thinkingIndex = messages.findIndex(m => m.id === thinkingId);
         if (thinkingIndex !== -1) {
             messages.splice(thinkingIndex, 1);
             messages = [...messages];
-            addAssistantMessage(response);
+            addAssistantMessage(response, onComplete);
         }
     }
 
@@ -258,6 +269,28 @@
             window.lastBackendData = null;
         }
         console.log('🧹 Cleared pending transaction');
+    }
+
+    function triggerPendingActionIfNeeded(messageId: number) {
+        // Check if this is the message that should trigger a transaction
+        if (window.lastBackendData && pendingTransaction && messages.find(m => m.id === messageId)) {
+            // Add a small delay after typing finishes
+            setTimeout(() => {
+                addSystemMessage('⏳ Ready to sign transaction...');
+                // Wait another moment before triggering
+                setTimeout(() => {
+                    signTransaction(pendingTransaction, window.lastBackendData)
+                        .then(txHash => {
+                            if (txHash) {
+                                handleTransactionSuccess(txHash, window.lastBackendData);
+                            }
+                        })
+                        .catch(error => {
+                            addAssistantMessage(`❌ Auto-sign failed: ${error.message}`);
+                        });
+                }, 1500);
+            }, 500);
+        }
     }
 
     // ============ WALLET FUNCTIONS ============
@@ -687,9 +720,7 @@
             if (response.ok) {
                 const data = await response.json();
                 
-                // Replace thinking with AI response
-                replaceThinkingWithResponse(thinkingId, data.ai_message);
-                
+                // Store transaction data before replacing the thinking message
                 if (data.data && data.data.transaction_data) {
                     pendingTransaction = data.data.transaction_data;
                     window.lastBackendData = data.data;
@@ -697,30 +728,31 @@
                     if (!pendingTransaction.chain_id) {
                         pendingTransaction.chain_id = chainId;
                     }
-                    
-                    // Wait for typing to complete before auto-signing
-                    const checkTypingInterval = setInterval(() => {
-                        if (isTypingComplete) {
-                            clearInterval(checkTypingInterval);
-                            // Add a small delay after typing finishes
-                            setTimeout(() => {
-                                addSystemMessage('⏳ Ready to sign transaction...');
-                                // Wait another moment before triggering
-                                setTimeout(() => {
-                                    signTransaction(pendingTransaction, data.data)
-                                        .then(txHash => {
-                                            if (txHash) {
-                                                handleTransactionSuccess(txHash, data.data);
-                                            }
-                                        })
-                                        .catch(error => {
-                                            addAssistantMessage(`❌ Auto-sign failed: ${error.message}`);
-                                        });
-                                }, 1500);
-                            }, 500);
-                        }
-                    }, 100);
                 }
+                
+                // Replace thinking with AI response and pass callback for when typing completes
+                replaceThinkingWithResponse(thinkingId, data.ai_message, () => {
+                    // This callback runs when the typing is complete
+                    if (pendingTransaction && window.lastBackendData) {
+                        // Add a small delay after typing finishes
+                        setTimeout(() => {
+                            addSystemMessage('⏳ Ready to sign transaction...');
+                            // Wait another moment before triggering
+                            setTimeout(() => {
+                                signTransaction(pendingTransaction, window.lastBackendData)
+                                    .then(txHash => {
+                                        if (txHash) {
+                                            handleTransactionSuccess(txHash, window.lastBackendData);
+                                        }
+                                    })
+                                    .catch(error => {
+                                        addAssistantMessage(`❌ Auto-sign failed: ${error.message}`);
+                                    });
+                            }, 1500);
+                        }, 500);
+                    }
+                });
+                
             } else {
                 const errorText = await response.text();
                 replaceThinkingWithResponse(thinkingId, `❌ Request Failed\n\n${errorText}`);
